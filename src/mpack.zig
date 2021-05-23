@@ -1,15 +1,15 @@
 const std = @import("std");
 
-pub fn MpackEncoder(comptime WriterType: type) type {
+pub fn Encoder(comptime WriterType: type) type {
     return struct {
         writer: WriterType,
 
         const Self = @This();
         pub const Error = WriterType.Error;
 
-        fn put(self: Self, T: type, val: T) Error!void {
+        fn put(self: Self, comptime T: type, val: T) Error!void {
             if (T == u8) {
-                try self.writer.writeByte(byte);
+                try self.writer.writeByte(val);
             } else if (T == u16) {
                 try self.put(u8, @intCast(u8, (val >> 8) & 0xFF));
                 try self.put(u8, @intCast(u8, val & 0xFF));
@@ -50,13 +50,14 @@ pub fn MpackEncoder(comptime WriterType: type) type {
 }
 
 const ArrayList = std.ArrayList;
-fn writeArray(arr: *ArrayList(u8), bytes: []const u8) AnyError!void {
-    arr.appendSlice(bytes);
-}
-const ArrayWriter = std.io.Writer(*ArrayList(u8), anyerror, writeArray);
 
 test {
-    var x = ArrayList(8).new();
-    var encoder = Encoder{ .writer = ArrayWriter(&x) };
-    encoder.startArray(4);
+    const testing = std.testing;
+    const allocator = testing.allocator;
+    var x = ArrayList(u8).init(allocator);
+    defer x.deinit();
+    var encoder = Encoder(ArrayList(u8).Writer){ .writer = x.writer() };
+    try encoder.startArray(4);
+
+    try testing.expectEqualSlices(u8, &[_]u8{0x94}, x.items);
 }
