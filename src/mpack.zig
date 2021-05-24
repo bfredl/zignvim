@@ -35,13 +35,17 @@ pub fn Encoder(comptime WriterType: type) type {
             }
         }
 
-        pub fn writeInt(val: anytype) Error!void {
-            const info = @typeInfo(@TypeOf(val)).Integer;
-            if (info.signnednes == .Unsigned) {
+        pub fn writeInt(self: Self, val: anytype) Error!void {
+            comptime const unsigned = switch (@typeInfo(@TypeOf(val))) {
+                .Int => |int| int.signedness == .Unsigned,
+                .ComptimeInt => false, // or val >= 0 but handled below
+                else => unreachable,
+            };
+            if (unsigned or val >= 0) {
                 if (val <= 0x7f) {
                     try self.put(u8, val);
                 } else if (val <= std.math.maxInt(u8)) {
-                    try self.put(u8, val);
+                    try self.put(u8, 0xcc);
                     try self.put(u8, val);
                 }
             }
@@ -58,6 +62,8 @@ test {
     defer x.deinit();
     var encoder = Encoder(ArrayList(u8).Writer){ .writer = x.writer() };
     try encoder.startArray(4);
+    try encoder.writeInt(4);
+    try encoder.writeInt(200);
 
-    try testing.expectEqualSlices(u8, &[_]u8{0x94}, x.items);
+    try testing.expectEqualSlices(u8, &[_]u8{ 0x94, 0x04, 0xcc, 0xc8 }, x.items);
 }
