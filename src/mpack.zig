@@ -53,6 +53,47 @@ pub fn Encoder(comptime WriterType: type) type {
     };
 }
 
+pub const ValueHead = union(enum) {
+    Incomplete,
+    Null,
+    Bool: bool,
+    Int: i64,
+    Uint64: u64,
+    Float32: f32,
+    Float64: f64,
+    Array: u64,
+    Map: u32,
+    Str: u32,
+    Bin: u32,
+};
+
+pub const Reader = struct {
+    data: []u8,
+
+    const Self = @this();
+    const Error = error{
+        MalformatedDataError,
+    };
+
+    pub fn readHead(self: *Self) Error!ValueHead {
+        if (self.data.len < 1) {
+            return .Incomplete;
+        }
+        const first_byte = self.data.bytes[0];
+        const State = struct { val: ValueHead, left: usize };
+        const res: State = switch (first_byte) {
+            0xc0 => .{ .Null, 0 },
+            else => return Error.MalformatedDataError,
+        };
+        if (res.left == 0) {
+            self.data = self.data[1..];
+            return res.left;
+        } else if (res.left > self.data.len - 1) {
+            return .Incomplete;
+        }
+    }
+};
+
 const ArrayList = std.ArrayList;
 
 test {
