@@ -54,7 +54,6 @@ pub fn Encoder(comptime WriterType: type) type {
 }
 
 pub const ValueHead = union(enum) {
-    Incomplete,
     Null,
     Bool: bool,
     Int: i64,
@@ -67,30 +66,59 @@ pub const ValueHead = union(enum) {
     Bin: u32,
 };
 
-pub const Reader = struct {
+pub const Decoder = struct {
     data: []u8,
 
-    const Self = @this();
+    const Self = @This();
     const Error = error{
         MalformatedDataError,
+        IncompleteData,
     };
+
+    fn readTail(size: usize, tail: *[]u8) Error![]u8 {
+        if (tail.len < size) {
+            return Error.IncompleteData;
+        }
+        var slice = tail.*[0..size];
+        tail.* = tail.*[size..];
+        return slice;
+    }
+
+    fn readInt(comptime T: type, tail: *[]u8) Error!T {
+        if (@typeInfo(T) != .Int) {
+            @compileError("why u no int???");
+        }
+        var out: T = undefined;
+        @memcpy(@ptrCast([*]u8, &out), (try readTail(@sizeOf(T), tail)).ptr, @sizeOf(T));
+
+        return std.mem.bigToNative(T, out);
+    }
+
+    inline fn int(i: i64) ValueHead {
+        return ValueHead{ .Int = i };
+    }
 
     pub fn readHead(self: *Self) Error!ValueHead {
         if (self.data.len < 1) {
-            return .Incomplete;
+            return Error.IncompleteData;
         }
-        const first_byte = self.data.bytes[0];
-        const State = struct { val: ValueHead, left: usize };
-        const res: State = switch (first_byte) {
-            0xc0 => .{ .Null, 0 },
+        const first_byte = self.data[0];
+        var tail = self.data[1..];
+
+        const val = switch (first_byte) {
+            0x00...0x7f => int(first_byte),
+            0x90...0x9f => ValueHead{ .Array = (first_byte - 0x90) },
+            0xc0 => .Null,
+            0xcc => int(try readInt(u8, &tail)),
+            0xcd => int(try readInt(u16, &tail)),
+            0xd0 => int(try readInt(i8, &tail)),
+            0xe0...0xff => int(@intCast(i64, first_byte) - 0x100),
+
             else => return Error.MalformatedDataError,
         };
-        if (res.left == 0) {
-            self.data = self.data[1..];
-            return res.left;
-        } else if (res.left > self.data.len - 1) {
-            return .Incomplete;
-        }
+
+        self.data = tail;
+        return val;
     }
 };
 
@@ -107,4 +135,9 @@ test {
     try encoder.writeInt(200);
 
     try testing.expectEqualSlices(u8, &[_]u8{ 0x94, 0x04, 0xcc, 0xc8 }, x.items);
+
+    var decoder = Decoder{ .data = x.items };
+    try testing.expectEqual(ValueHead{ .Array = 4 }, try decoder.readHead());
+    try testing.expectEqual(ValueHead{ .Int = 4 }, try decoder.readHead());
+    try testing.expectEqual(ValueHead{ .Int = 200 }, try decoder.readHead());
 }
