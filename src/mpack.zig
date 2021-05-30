@@ -31,8 +31,19 @@ pub fn Encoder(comptime WriterType: type) type {
                 try self.put(u8, 0xdd);
                 try self.put(u32, @intCast(u32, count));
             } else {
-                unreachable;
+                @panic("aaa");
             }
+        }
+
+        pub fn putStr(self: Self, val: []u8) Error!void {
+            const len = val.len;
+            if (len <= 31) {
+                try self.put(u8, 0xa0 + len);
+            } else if (len <= 0xFF) {
+                try self.put(u8, 0xd9);
+                try self.put(u8, @intCast(u8, len));
+            }
+            try self.writer.writeAll(val);
         }
 
         pub fn writeInt(self: Self, val: anytype) Error!void {
@@ -48,6 +59,8 @@ pub fn Encoder(comptime WriterType: type) type {
                     try self.put(u8, 0xcc);
                     try self.put(u8, val);
                 }
+            } else {
+                @panic("aaa");
             }
         }
     };
