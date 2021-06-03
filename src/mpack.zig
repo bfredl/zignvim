@@ -66,6 +66,7 @@ pub fn Encoder(comptime WriterType: type) type {
     };
 }
 
+pub const ExtHead = struct { kind: i8, size: u32 };
 pub const ValueHead = union(enum) {
     Null,
     Bool: bool,
@@ -77,6 +78,7 @@ pub const ValueHead = union(enum) {
     Map: u32,
     Str: u32,
     Bin: u32,
+    Ext: ExtHead,
 };
 
 pub const Decoder = struct {
@@ -107,9 +109,7 @@ pub const Decoder = struct {
         return std.mem.bigToNative(T, out);
     }
 
-    inline fn int(i: i64) ValueHead {
-        return ValueHead{ .Int = i };
-    }
+    fn readFixExt(size: usize, tail: *[]u8) Error!ValueHead {}
 
     pub fn readHead(self: *Self) Error!ValueHead {
         if (self.data.len < 1) {
@@ -119,7 +119,7 @@ pub const Decoder = struct {
         var tail = self.data[1..];
 
         const val = switch (first_byte) {
-            0x00...0x7f => int(first_byte),
+            0x00...0x7f => ValueHead{ .Int = first_byte },
             0x80...0x8f => ValueHead{ .Map = (first_byte - 0x80) },
             0x90...0x9f => ValueHead{ .Array = (first_byte - 0x90) },
             0xa0...0xbf => ValueHead{ .Str = (first_byte - 0xa0) },
@@ -148,8 +148,7 @@ pub const Decoder = struct {
             0xd6 => ValueHead{ .Ext = try readFixExt(4, &tail) },
             0xd7 => ValueHead{ .Ext = try readFixExt(8, &tail) },
             0xd8 => ValueHead{ .Ext = try readFixExt(16, &tail) },
-            0xd0 => int(try readInt(i8, &tail)),
-            0xe0...0xff => int(@intCast(i64, first_byte) - 0x100),
+            0xe0...0xff => ValueHead{ .Int = @intCast(i64, first_byte) - 0x100 },
 
             else => return Error.MalformatedDataError,
         };
