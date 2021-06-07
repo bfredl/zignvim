@@ -35,10 +35,10 @@ pub fn Encoder(comptime WriterType: type) type {
             }
         }
 
-        pub fn putStr(self: Self, val: []u8) Error!void {
+        pub fn putStr(self: Self, val: []const u8) Error!void {
             const len = val.len;
             if (len <= 31) {
-                try self.put(u8, 0xa0 + len);
+                try self.put(u8, 0xa0 + @intCast(u8, len));
             } else if (len <= 0xFF) {
                 try self.put(u8, 0xd9);
                 try self.put(u8, @intCast(u8, len));
@@ -46,7 +46,7 @@ pub fn Encoder(comptime WriterType: type) type {
             try self.writer.writeAll(val);
         }
 
-        pub fn writeInt(self: Self, val: anytype) Error!void {
+        pub fn putInt(self: Self, val: anytype) Error!void {
             comptime const unsigned = switch (@typeInfo(@TypeOf(val))) {
                 .Int => |int| int.signedness == .Unsigned,
                 .ComptimeInt => false, // or val >= 0 but handled below
@@ -167,8 +167,8 @@ test {
     defer x.deinit();
     var encoder = Encoder(ArrayList(u8).Writer){ .writer = x.writer() };
     try encoder.startArray(4);
-    try encoder.writeInt(4);
-    try encoder.writeInt(200);
+    try encoder.putInt(4);
+    try encoder.putInt(200);
 
     try testing.expectEqualSlices(u8, &[_]u8{ 0x94, 0x04, 0xcc, 0xc8 }, x.items);
 
