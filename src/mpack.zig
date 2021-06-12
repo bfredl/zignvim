@@ -162,9 +162,14 @@ pub const Decoder = struct {
             0xd6 => .{ .Ext = try readFixExt(4, &tail) },
             0xd7 => .{ .Ext = try readFixExt(8, &tail) },
             0xd8 => .{ .Ext = try readFixExt(16, &tail) },
+            0xd9 => .{ .Str = try readInt(u8, &tail) },
+            0xda => .{ .Str = try readInt(u16, &tail) },
+            0xdb => .{ .Str = try readInt(u32, &tail) },
+            0xdc => .{ .Array = try readInt(u16, &tail) },
+            0xdd => .{ .Array = try readInt(u32, &tail) },
+            0xde => .{ .Map = try readInt(u16, &tail) },
+            0xdf => .{ .Map = try readInt(u32, &tail) },
             0xe0...0xff => .{ .Int = @intCast(i64, first_byte) - 0x100 },
-
-            else => return Error.MalformatedDataError,
         };
 
         self.data = tail;
