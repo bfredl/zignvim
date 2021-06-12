@@ -109,7 +109,21 @@ pub const Decoder = struct {
         return std.mem.bigToNative(T, out);
     }
 
-    fn readFixExt(size: usize, tail: *[]u8) Error!ValueHead {}
+    fn readFloat(comptime T: type, tail: *[]u8) Error!T {
+        const utype = if (T == f32) u32 else if (T == f64) u64 else undefined;
+        var int = try readInt(utype, tail);
+        return @bitCast(T, int);
+    }
+
+    fn readFixExt(size: u32, tail: *[]u8) Error!ExtHead {
+        var kind = try readInt(i8, tail);
+        return ExtHead{ .kind = kind, .size = size };
+    }
+
+    fn readExt(comptime sizetype: type, tail: *[]u8) Error!ExtHead {
+        var size = try readInt(sizetype, tail);
+        return readFixExt(size, tail);
+    }
 
     pub fn readHead(self: *Self) Error!ValueHead {
         if (self.data.len < 1) {

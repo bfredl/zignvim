@@ -38,4 +38,7 @@ pub fn main() !void {
     dbg("read: {}\n", .{lenny});
     var slice = buf[0..lenny];
     dbg("{s}\n", .{slice});
+
+    var decoder = mpack.Decoder{ .data = slice };
+    var state = decoder.readHead();
 }
