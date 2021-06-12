@@ -59,19 +59,23 @@ fn decodeLoop(buf: []u8, file: *std.fs.File) !void {
 
     var decoder = mpack.Decoder{ .data = slice };
     var msgHead = try decoder.expectArray();
-    dbg("heada {}\n", .{msgHead});
     if (msgHead < 3) {
         return error.SIGFAIL;
     }
     var msgKind = try decoder.expectUInt();
     switch (msgKind) {
-        1 => response(&decoder),
+        1 => try decodeResponse(&decoder, msgHead),
         else => return error.MalformatedRPCMessage,
     }
-    dbg("kinda {}\n", .{msgKind});
+}
+
+fn decodeResponse(decoder: *mpack.Decoder, arraySize: u32) !void {
+    if (arraySize != 4) {
+        return error.MalformatedRPCMessage;
+    }
+    var id = try decoder.expectUInt();
+    dbg("id: {}\n", .{id});
     var state = try decoder.readHead();
-    dbg("{}\n", .{state});
-    state = try decoder.readHead();
     dbg("{}\n", .{state});
     state = try decoder.readHead();
     dbg("{}\n", .{state});
