@@ -48,6 +48,8 @@ pub fn main() !void {
     var buf: [1024]u8 = undefined;
 
     try decodeLoop(&buf, stdout);
+    // FAIL: not synchronized
+    try decodeLoop(&buf, stdout);
 }
 
 fn decodeLoop(buf: []u8, file: *std.fs.File) !void {
@@ -65,6 +67,7 @@ fn decodeLoop(buf: []u8, file: *std.fs.File) !void {
     var msgKind = try decoder.expectUInt();
     switch (msgKind) {
         1 => try decodeResponse(&decoder, msgHead),
+        2 => try decodeEvent(&decoder, msgHead),
         else => return error.MalformatedRPCMessage,
     }
 }
@@ -75,6 +78,18 @@ fn decodeResponse(decoder: *mpack.Decoder, arraySize: u32) !void {
     }
     var id = try decoder.expectUInt();
     dbg("id: {}\n", .{id});
+    var state = try decoder.readHead();
+    dbg("{}\n", .{state});
+    state = try decoder.readHead();
+    dbg("{}\n", .{state});
+}
+
+fn decodeEvent(decoder: *mpack.Decoder, arraySize: u32) !void {
+    if (arraySize != 3) {
+        return error.MalformatedRPCMessage;
+    }
+    var name = try decoder.expectString();
+    dbg("name: {}\n", .{id});
     var state = try decoder.readHead();
     dbg("{}\n", .{state});
     state = try decoder.readHead();
