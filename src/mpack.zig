@@ -21,17 +21,27 @@ pub fn Encoder(comptime WriterType: type) type {
             }
         }
 
-        pub fn startArray(self: Self, count: usize) Error!void {
+        pub fn putArrayHead(self: Self, count: u32) Error!void {
             if (count <= 15) {
                 try self.put(u8, 0x90 | @intCast(u8, count));
             } else if (count <= std.math.maxInt(u16)) {
                 try self.put(u8, 0xdc);
                 try self.put(u16, @intCast(u16, count));
-            } else if (count <= std.math.maxInt(u32)) {
+            } else {
                 try self.put(u8, 0xdd);
                 try self.put(u32, @intCast(u32, count));
+            }
+        }
+
+        pub fn putMapHead(self: Self, count: u32) Error!void {
+            if (count <= 15) {
+                try self.put(u8, 0x80 | @intCast(u8, count));
+            } else if (count <= std.math.maxInt(u16)) {
+                try self.put(u8, 0xde);
+                try self.put(u16, @intCast(u16, count));
             } else {
-                @panic("aaa");
+                try self.put(u8, 0xdf);
+                try self.put(u32, @intCast(u32, count));
             }
         }
 
@@ -63,6 +73,10 @@ pub fn Encoder(comptime WriterType: type) type {
                 @panic("aaa");
             }
         }
+
+        pub fn putBool(self: Self, b: bool) Error!void {
+            try self.put(u8, @as(u8, if (b) 0xc3 else 0xc2));
+        }
     };
 }
 
@@ -74,7 +88,7 @@ pub const ValueHead = union(enum) {
     UInt: u64,
     Float32: f32,
     Float64: f64,
-    Array: u64,
+    Array: u32,
     Map: u32,
     Str: u32,
     Bin: u32,
@@ -88,6 +102,7 @@ pub const Decoder = struct {
     const Error = error{
         MalformatedDataError,
         IncompleteData,
+        UnexpectedTagError,
     };
 
     fn readTail(size: usize, tail: *[]u8) Error![]u8 {
@@ -174,6 +189,37 @@ pub const Decoder = struct {
 
         self.data = tail;
         return val;
+    }
+
+    // TODO: lol what is generic function? :S
+    pub fn expectArray(self: *Self) Error!u32 {
+        switch (try self.readHead()) {
+            .Array => |size| return size,
+            else => return Error.UnexpectedTagError,
+        }
+    }
+
+    pub fn expectMap(self: *Self) Error!u32 {
+        const head = try self.readHead();
+        switch (head) {
+            .Map => |size| return size,
+            else => return Error.UnexpectedTagError,
+        }
+    }
+
+    pub fn expectUInt(self: *Self) Error!u64 {
+        const head = try self.readHead();
+
+        switch (head) {
+            .UInt => |val| return val,
+            .Int => |val| {
+                if (val < 0) {
+                    return Error.UnexpectedTagError;
+                }
+                return @intCast(u64, val);
+            },
+            else => return Error.UnexpectedTagError,
+        }
     }
 };
 
