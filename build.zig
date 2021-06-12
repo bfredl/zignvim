@@ -7,9 +7,13 @@ pub fn build(b: *Builder) void {
     lib.setBuildMode(mode);
     lib.install();
 
-    const exe = b.addExecutable("iotest", "src/io.zig");
-    exe.linkSystemLibrary("c");
-    exe.linkSystemLibrary("uv");
+    const exe_uv = b.addExecutable("iotest_uv", "src/io_uv.zig");
+    exe_uv.linkSystemLibrary("c");
+    exe_uv.linkSystemLibrary("uv");
+    exe_uv.setBuildMode(mode);
+    // exe_uv.install();
+
+    const exe = b.addExecutable("iotest", "src/io_native.zig");
     exe.setBuildMode(mode);
     exe.install();
 
