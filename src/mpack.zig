@@ -116,38 +116,45 @@ pub const Decoder = struct {
         return slice;
     }
 
-    fn readInt(comptime T: type, tail: *[]u8) Error!T {
+    // NB: returned slice is only valid until next getMoreData()!
+    fn readBytes(self: *Self, size: usize) Error![]u8 {
+        while (self.data.len < size) {
+            try self.getMoreData();
+        }
+        var slice = self.data[0..size];
+        self.data = self.data[size..];
+        return slice;
+    }
+
+    fn readInt(self: *Self, comptime T: type) Error!T {
         if (@typeInfo(T) != .Int) {
             @compileError("why u no int???");
         }
+        var slice = try self.readBytes(@sizeOf(T));
         var out: T = undefined;
-        @memcpy(@ptrCast([*]u8, &out), (try readTail(@sizeOf(T), tail)).ptr, @sizeOf(T));
+        @memcpy(@ptrCast([*]u8, &out), slice.ptr, @sizeOf(T));
 
         return std.mem.bigToNative(T, out);
     }
 
-    fn readFloat(comptime T: type, tail: *[]u8) Error!T {
+    fn readFloat(self: *Self, comptime T: type) Error!T {
         const utype = if (T == f32) u32 else if (T == f64) u64 else undefined;
-        var int = try readInt(utype, tail);
+        var int = try self.readInt(utype);
         return @bitCast(T, int);
     }
 
-    fn readFixExt(size: u32, tail: *[]u8) Error!ExtHead {
-        var kind = try readInt(i8, tail);
+    fn readFixExt(self: *Self, size: u32) Error!ExtHead {
+        var kind = try self.readInt(i8);
         return ExtHead{ .kind = kind, .size = size };
     }
 
-    fn readExt(comptime sizetype: type, tail: *[]u8) Error!ExtHead {
-        var size = try readInt(sizetype, tail);
-        return readFixExt(size, tail);
+    fn readExt(self: *Self, comptime sizetype: type) Error!ExtHead {
+        var size = try self.readInt(sizetype);
+        return self.readFixExt(size);
     }
 
     pub fn readHead(self: *Self) Error!ValueHead {
-        if (self.data.len < 1) {
-            return Error.IncompleteData;
-        }
-        const first_byte = self.data[0];
-        var tail = self.data[1..];
+        const first_byte = (try self.readBytes(1))[0];
 
         const val: ValueHead = switch (first_byte) {
             0x00...0x7f => .{ .Int = first_byte },
@@ -158,38 +165,37 @@ pub const Decoder = struct {
             0xc1 => return Error.MalformatedDataError,
             0xc2 => .{ .Bool = false },
             0xc3 => .{ .Bool = true },
-            0xc4 => .{ .Bin = try readInt(u8, &tail) },
-            0xc5 => .{ .Bin = try readInt(u16, &tail) },
-            0xc6 => .{ .Bin = try readInt(u32, &tail) },
-            0xc7 => .{ .Ext = try readExt(u8, &tail) },
-            0xc8 => .{ .Ext = try readExt(u16, &tail) },
-            0xc9 => .{ .Ext = try readExt(u32, &tail) },
-            0xca => .{ .Float32 = try readFloat(f32, &tail) },
-            0xcb => .{ .Float64 = try readFloat(f64, &tail) },
-            0xcc => .{ .UInt = try readInt(u8, &tail) },
-            0xcd => .{ .UInt = try readInt(u16, &tail) },
-            0xce => .{ .UInt = try readInt(u32, &tail) },
-            0xcf => .{ .UInt = try readInt(u64, &tail) },
-            0xd0 => .{ .Int = try readInt(i8, &tail) },
-            0xd1 => .{ .Int = try readInt(i16, &tail) },
-            0xd2 => .{ .Int = try readInt(i32, &tail) },
-            0xd3 => .{ .Int = try readInt(i64, &tail) },
-            0xd4 => .{ .Ext = try readFixExt(1, &tail) },
-            0xd5 => .{ .Ext = try readFixExt(2, &tail) },
-            0xd6 => .{ .Ext = try readFixExt(4, &tail) },
-            0xd7 => .{ .Ext = try readFixExt(8, &tail) },
-            0xd8 => .{ .Ext = try readFixExt(16, &tail) },
-            0xd9 => .{ .Str = try readInt(u8, &tail) },
-            0xda => .{ .Str = try readInt(u16, &tail) },
-            0xdb => .{ .Str = try readInt(u32, &tail) },
-            0xdc => .{ .Array = try readInt(u16, &tail) },
-            0xdd => .{ .Array = try readInt(u32, &tail) },
-            0xde => .{ .Map = try readInt(u16, &tail) },
-            0xdf => .{ .Map = try readInt(u32, &tail) },
+            0xc4 => .{ .Bin = try self.readInt(u8) },
+            0xc5 => .{ .Bin = try self.readInt(u16) },
+            0xc6 => .{ .Bin = try self.readInt(u32) },
+            0xc7 => .{ .Ext = try self.readExt(u8) },
+            0xc8 => .{ .Ext = try self.readExt(u16) },
+            0xc9 => .{ .Ext = try self.readExt(u32) },
+            0xca => .{ .Float32 = try self.readFloat(f32) },
+            0xcb => .{ .Float64 = try self.readFloat(f64) },
+            0xcc => .{ .UInt = try self.readInt(u8) },
+            0xcd => .{ .UInt = try self.readInt(u16) },
+            0xce => .{ .UInt = try self.readInt(u32) },
+            0xcf => .{ .UInt = try self.readInt(u64) },
+            0xd0 => .{ .Int = try self.readInt(i8) },
+            0xd1 => .{ .Int = try self.readInt(i16) },
+            0xd2 => .{ .Int = try self.readInt(i32) },
+            0xd3 => .{ .Int = try self.readInt(i64) },
+            0xd4 => .{ .Ext = try self.readFixExt(1) },
+            0xd5 => .{ .Ext = try self.readFixExt(2) },
+            0xd6 => .{ .Ext = try self.readFixExt(4) },
+            0xd7 => .{ .Ext = try self.readFixExt(8) },
+            0xd8 => .{ .Ext = try self.readFixExt(16) },
+            0xd9 => .{ .Str = try self.readInt(u8) },
+            0xda => .{ .Str = try self.readInt(u16) },
+            0xdb => .{ .Str = try self.readInt(u32) },
+            0xdc => .{ .Array = try self.readInt(u16) },
+            0xdd => .{ .Array = try self.readInt(u32) },
+            0xde => .{ .Map = try self.readInt(u16) },
+            0xdf => .{ .Map = try self.readInt(u32) },
             0xe0...0xff => .{ .Int = @intCast(i64, first_byte) - 0x100 },
         };
 
-        self.data = tail;
         return val;
     }
 
@@ -204,40 +210,23 @@ pub const Decoder = struct {
         }
     }
 
-    pub fn expectHead(self: *Self) Error!ValueHead {
-        while (true) {
-            if (self.readHead()) |head| {
-                // TODO: kolla striings
-                return head;
-            } else |err| {
-                switch (err) {
-                    Error.IncompleteData => {
-                        try self.getMoreData();
-                        continue;
-                    },
-                    else => return err,
-                }
-            }
-        }
-    }
-
     // TODO: lol what is generic function? :S
     pub fn expectArray(self: *Self) Error!u32 {
-        switch (try self.expectHead()) {
+        switch (try self.readHead()) {
             .Array => |size| return size,
             else => return Error.UnexpectedTagError,
         }
     }
 
     pub fn expectMap(self: *Self) Error!u32 {
-        switch (try self.expectHead()) {
+        switch (try self.readHead()) {
             .Map => |size| return size,
             else => return Error.UnexpectedTagError,
         }
     }
 
     pub fn expectUInt(self: *Self) Error!u64 {
-        switch (try self.expectHead()) {
+        switch (try self.readHead()) {
             .UInt => |val| return val,
             .Int => |val| {
                 if (val < 0) {
@@ -250,7 +239,7 @@ pub const Decoder = struct {
     }
 
     pub fn expectString(self: *Self) Error![]u8 {
-        const size = switch (try self.expectHead()) {
+        const size = switch (try self.readHead()) {
             .Str => |size| size,
             .Bin => |size| size,
             else => return Error.UnexpectedTagError,
@@ -291,7 +280,7 @@ pub const Decoder = struct {
                 bytes -= skip;
             }
             if (items > 0) {
-                const head = try self.expectHead();
+                const head = try self.readHead();
                 items -= 1;
                 const size = itemSize(head);
                 bytes += size.bytes;

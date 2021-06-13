@@ -1,5 +1,6 @@
 const std = @import("std");
 const dbg = std.debug.print;
+//pub fn dbg(a: anytype, b: anytype) void {}
 const mpack = @import("./mpack.zig");
 
 const ChildProcess = std.ChildProcess;
