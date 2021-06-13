@@ -47,28 +47,35 @@ pub fn main() !void {
     try stdin.writeAll(x.items);
     var buf: [1024]u8 = undefined;
 
-    try decodeLoop(&buf, stdout);
-    // FAIL: not synchronized
-    try decodeLoop(&buf, stdout);
-}
-
-fn decodeLoop(buf: []u8, file: *std.fs.File) !void {
-    var lenny = try file.read(buf);
-
+    var lenny = try stdout.read(&buf);
     dbg("read: {}\n", .{lenny});
     var slice = buf[0..lenny];
     dbg("{s}\n", .{slice});
-
     var decoder = mpack.Decoder{ .data = slice };
-    var msgHead = try decoder.expectArray();
-    if (msgHead < 3) {
-        return error.SIGFAIL;
-    }
-    var msgKind = try decoder.expectUInt();
-    switch (msgKind) {
-        1 => try decodeResponse(&decoder, msgHead),
-        2 => try decodeEvent(&decoder, msgHead),
-        else => return error.MalformatedRPCMessage,
+    var decodeFrame = async decodeLoop(&decoder);
+    dbg("NÅGONSTANS", .{});
+    // FAIL: not synchronized with inconsumed data!
+    lenny = try stdout.read(&buf);
+    dbg("read2: {}\n", .{lenny});
+    decoder.data = buf[0..lenny];
+    resume decoder.frame;
+    dbg("GÖTEBORD", .{});
+    resume decoder.frame;
+    try nosuspend await decodeFrame;
+}
+
+fn decodeLoop(decoder: *mpack.Decoder) !void {
+    while (true) {
+        var msgHead = try decoder.expectArray();
+        if (msgHead < 3) {
+            return error.SIGFAIL;
+        }
+        var msgKind = try decoder.expectUInt();
+        switch (msgKind) {
+            1 => try decodeResponse(decoder, msgHead),
+            2 => try decodeEvent(decoder, msgHead),
+            else => return error.MalformatedRPCMessage,
+        }
     }
 }
 

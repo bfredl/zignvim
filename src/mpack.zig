@@ -98,6 +98,7 @@ pub const ValueHead = union(enum) {
 
 pub const Decoder = struct {
     data: []u8,
+    frame: anyframe = undefined,
 
     const Self = @This();
     const Error = error{
@@ -192,23 +193,51 @@ pub const Decoder = struct {
         return val;
     }
 
+    fn getMoreData(self: *Self) Error!void {
+        const bytes = self.data.len;
+        suspend {
+            self.frame = @frame();
+        }
+        if (self.data.len <= bytes) {
+            // separate EOF error?
+            return Error.IncompleteData;
+        }
+    }
+
+    pub fn expectHead(self: *Self) Error!ValueHead {
+        while (true) {
+            if (self.readHead()) |head| {
+                // TODO: kolla striings
+                return head;
+            } else |err| {
+                switch (err) {
+                    Error.IncompleteData => {
+                        try self.getMoreData();
+                        continue;
+                    },
+                    else => return err,
+                }
+            }
+        }
+    }
+
     // TODO: lol what is generic function? :S
     pub fn expectArray(self: *Self) Error!u32 {
-        switch (try self.readHead()) {
+        switch (try self.expectHead()) {
             .Array => |size| return size,
             else => return Error.UnexpectedTagError,
         }
     }
 
     pub fn expectMap(self: *Self) Error!u32 {
-        switch (try self.readHead()) {
+        switch (try self.expectHead()) {
             .Map => |size| return size,
             else => return Error.UnexpectedTagError,
         }
     }
 
     pub fn expectUInt(self: *Self) Error!u64 {
-        switch (try self.readHead()) {
+        switch (try self.expectHead()) {
             .UInt => |val| return val,
             .Int => |val| {
                 if (val < 0) {
@@ -221,13 +250,13 @@ pub const Decoder = struct {
     }
 
     pub fn expectString(self: *Self) Error![]u8 {
-        const size = switch (try self.readHead()) {
+        const size = switch (try self.expectHead()) {
             .Str => |size| size,
             .Bin => |size| size,
             else => return Error.UnexpectedTagError,
         };
-        if (self.data.len < size) {
-            return Error.IncompleteData; // hurr durr not recoverable
+        while (self.data.len < size) {
+            try self.getMoreData();
         }
 
         const str = self.data[0..size];
@@ -254,17 +283,15 @@ pub const Decoder = struct {
 
         while (bytes > 0 or items > 0) {
             if (bytes > 0) {
-                const skip = std.math.min(bytes, self.data.len);
-                if (skip == 0) {
-                    return Error.IncompleteData;
+                if (self.data.len == 0) {
+                    try self.getMoreData();
                 }
-                dbg("BYTTEN: {s}\n", .{self.data[0..skip]});
+                const skip = std.math.min(bytes, self.data.len);
                 self.data = self.data[skip..];
                 bytes -= skip;
             }
             if (items > 0) {
-                const head = try self.readHead();
-                dbg("HEADDEN: {}\n", .{head});
+                const head = try self.expectHead();
                 items -= 1;
                 const size = itemSize(head);
                 bytes += size.bytes;
