@@ -89,9 +89,14 @@ fn decodeEvent(decoder: *mpack.Decoder, arraySize: u32) !void {
         return error.MalformatedRPCMessage;
     }
     var name = try decoder.expectString();
-    dbg("name: {}\n", .{id});
-    var state = try decoder.readHead();
-    dbg("{}\n", .{state});
-    state = try decoder.readHead();
-    dbg("{}\n", .{state});
+    dbg("name: {s}\n", .{name});
+    var args = try decoder.expectArray();
+    dbg("narg: {}\n", .{args});
+    while (args > 0) : (args -= 1) {
+        var iargs = try decoder.expectArray();
+        dbg("iarg: {}\n", .{iargs});
+        var iname = try decoder.expectString();
+        dbg("iname: {s}\n", .{iname});
+        try decoder.skipAhead(iargs - 1);
+    }
 }

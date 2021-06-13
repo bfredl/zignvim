@@ -1,4 +1,5 @@
 const std = @import("std");
+const dbg = std.debug.print;
 
 pub fn Encoder(comptime WriterType: type) type {
     return struct {
@@ -200,17 +201,14 @@ pub const Decoder = struct {
     }
 
     pub fn expectMap(self: *Self) Error!u32 {
-        const head = try self.readHead();
-        switch (head) {
+        switch (try self.readHead()) {
             .Map => |size| return size,
             else => return Error.UnexpectedTagError,
         }
     }
 
     pub fn expectUInt(self: *Self) Error!u64 {
-        const head = try self.readHead();
-
-        switch (head) {
+        switch (try self.readHead()) {
             .UInt => |val| return val,
             .Int => |val| {
                 if (val < 0) {
@@ -219,6 +217,59 @@ pub const Decoder = struct {
                 return @intCast(u64, val);
             },
             else => return Error.UnexpectedTagError,
+        }
+    }
+
+    pub fn expectString(self: *Self) Error![]u8 {
+        const size = switch (try self.readHead()) {
+            .Str => |size| size,
+            .Bin => |size| size,
+            else => return Error.UnexpectedTagError,
+        };
+        if (self.data.len < size) {
+            return Error.IncompleteData; // hurr durr not recoverable
+        }
+
+        const str = self.data[0..size];
+        self.data = self.data[size..];
+        return str;
+    }
+
+    const ItemSize = struct { bytes: u32, items: usize };
+
+    fn itemSize(head: ValueHead) ItemSize {
+        return switch (head) {
+            .Str => |size| .{ .bytes = size, .items = 0 },
+            .Bin => |size| .{ .bytes = size, .items = 0 },
+            .Ext => |ext| .{ .bytes = ext.size, .items = 0 },
+            .Array => |size| .{ .bytes = 0, .items = size },
+            .Map => |size| .{ .bytes = 0, .items = 2 * size },
+            else => .{ .bytes = 0, .items = 0 },
+        };
+    }
+
+    pub fn skipAhead(self: *Self, skipped: usize) Error!void {
+        var bytes: u32 = 0;
+        var items: usize = skipped;
+
+        while (bytes > 0 or items > 0) {
+            if (bytes > 0) {
+                const skip = std.math.min(bytes, self.data.len);
+                if (skip == 0) {
+                    return Error.IncompleteData;
+                }
+                dbg("BYTTEN: {s}\n", .{self.data[0..skip]});
+                self.data = self.data[skip..];
+                bytes -= skip;
+            }
+            if (items > 0) {
+                const head = try self.readHead();
+                dbg("HEADDEN: {}\n", .{head});
+                items -= 1;
+                const size = itemSize(head);
+                bytes += size.bytes;
+                items += size.items;
+            }
         }
     }
 };
