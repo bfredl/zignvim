@@ -107,13 +107,15 @@ pub const Decoder = struct {
         UnexpectedTagError,
     };
 
-    fn readTail(size: usize, tail: *[]u8) Error![]u8 {
-        if (tail.len < size) {
+    fn getMoreData(self: *Self) Error!void {
+        const bytes = self.data.len;
+        suspend {
+            self.frame = @frame();
+        }
+        if (self.data.len <= bytes) {
+            // separate EOF error?
             return Error.IncompleteData;
         }
-        var slice = tail.*[0..size];
-        tail.* = tail.*[size..];
-        return slice;
     }
 
     // NB: returned slice is only valid until next getMoreData()!
@@ -197,17 +199,6 @@ pub const Decoder = struct {
         };
 
         return val;
-    }
-
-    fn getMoreData(self: *Self) Error!void {
-        const bytes = self.data.len;
-        suspend {
-            self.frame = @frame();
-        }
-        if (self.data.len <= bytes) {
-            // separate EOF error?
-            return Error.IncompleteData;
-        }
     }
 
     // TODO: lol what is generic function? :S
