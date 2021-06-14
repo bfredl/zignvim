@@ -1,4 +1,5 @@
 const std = @import("std");
+const mem = std.mem;
 const dbg = std.debug.print;
 //pub fn dbg(a: anytype, b: anytype) void {}
 const mpack = @import("./mpack.zig");
@@ -103,15 +104,24 @@ fn decodeEvent(decoder: *mpack.Decoder, arraySize: u32) RPCError!void {
         return error.MalformatedRPCMessage;
     }
     var name = try decoder.expectString();
-    dbg("name: {s}\n", .{name});
+    if (mem.eql(u8, name, "redraw")) {
+        try handleRedraw(decoder);
+    } else {
+        // TODO: untested
+        dbg("FEEEEL: {s}\n", .{name});
+        try decoder.skipAhead(1); // args array
+    }
+}
+
+fn handleRedraw(decoder: *mpack.Decoder) RPCError!void {
+    dbg("==BEGIN REDRAW\n", .{});
     var args = try decoder.expectArray();
-    dbg("narg: {}\n", .{args});
+    dbg("n-event: {}\n", .{args});
     while (args > 0) : (args -= 1) {
-        dbg("gnarg: {}\n", .{args});
         var iargs = try decoder.expectArray();
-        dbg("iarg: {}\n", .{iargs});
         var iname = try decoder.expectString();
-        dbg("iname: {s}\n", .{iname});
+        dbg("event: {s} {}\n", .{ iname, iargs - 1 });
         try decoder.skipAhead(iargs - 1);
     }
+    dbg("==DUN REDRAW\n", .{});
 }
