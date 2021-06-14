@@ -98,7 +98,7 @@ pub const ValueHead = union(enum) {
 
 pub const Decoder = struct {
     data: []u8,
-    frame: anyframe = undefined,
+    frame: ?anyframe = null,
 
     const Self = @This();
     pub const Error = error{
@@ -112,6 +112,7 @@ pub const Decoder = struct {
         suspend {
             self.frame = @frame();
         }
+        self.frame = null;
         if (self.data.len <= bytes) {
             // separate EOF error?
             return Error.IncompleteData;

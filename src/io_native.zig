@@ -51,7 +51,7 @@ pub fn main() !void {
     var decoder = mpack.Decoder{ .data = buf[0..lenny] };
     var decodeFrame = async decodeLoop(&decoder);
 
-    while (true) {
+    while (decoder.frame != null) {
         const oldlen = decoder.data.len;
         if (oldlen > 0 and decoder.data.ptr != &buf) {
             // TODO: avoid move if remaining space is plenty (like > 900)
@@ -60,7 +60,7 @@ pub fn main() !void {
         lenny = try stdout.read(buf[oldlen..]);
         decoder.data = buf[0 .. oldlen + lenny];
 
-        resume decoder.frame;
+        resume decoder.frame.?;
     }
 
     try nosuspend await decodeFrame;
@@ -107,6 +107,7 @@ fn decodeEvent(decoder: *mpack.Decoder, arraySize: u32) RPCError!void {
     var args = try decoder.expectArray();
     dbg("narg: {}\n", .{args});
     while (args > 0) : (args -= 1) {
+        dbg("gnarg: {}\n", .{args});
         var iargs = try decoder.expectArray();
         dbg("iarg: {}\n", .{iargs});
         var iname = try decoder.expectString();
