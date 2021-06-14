@@ -113,6 +113,16 @@ fn decodeEvent(decoder: *mpack.Decoder, arraySize: u32) RPCError!void {
     }
 }
 
+const RedrawEvents = enum {
+    Grid_line,
+    Flush,
+};
+
+const name_map = std.ComptimeStringMap(RedrawEvents, .{
+    .{ "grid_line", .Grid_line },
+    .{ "flush", .Flush },
+});
+
 fn handleRedraw(decoder: *mpack.Decoder) RPCError!void {
     dbg("==BEGIN REDRAW\n", .{});
     var args = try decoder.expectArray();
@@ -121,6 +131,8 @@ fn handleRedraw(decoder: *mpack.Decoder) RPCError!void {
         var iargs = try decoder.expectArray();
         var iname = try decoder.expectString();
         dbg("event: {s} {}\n", .{ iname, iargs - 1 });
+        var event = name_map.get(iname);
+        dbg("{}\n", .{event});
         try decoder.skipAhead(iargs - 1);
     }
     dbg("==DUN REDRAW\n", .{});
