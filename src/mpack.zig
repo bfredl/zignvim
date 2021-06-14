@@ -269,8 +269,7 @@ pub const Decoder = struct {
                 const skip = std.math.min(bytes, self.data.len);
                 self.data = self.data[skip..];
                 bytes -= skip;
-            }
-            if (items > 0) {
+            } else if (items > 0) {
                 const head = try self.readHead();
                 items -= 1;
                 const size = itemSize(head);
