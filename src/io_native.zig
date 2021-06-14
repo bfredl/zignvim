@@ -47,23 +47,22 @@ pub fn main() !void {
 
     try stdin.writeAll(x.items);
     var buf: [1024]u8 = undefined;
-
     var lenny = try stdout.read(&buf);
-    dbg("read: {}\n", .{lenny});
-    var slice = buf[0..lenny];
-    dbg("{s}\n", .{slice});
-    var decoder = mpack.Decoder{ .data = slice };
+    var decoder = mpack.Decoder{ .data = buf[0..lenny] };
     var decodeFrame = async decodeLoop(&decoder);
-    // TODO: Y U so t h i c c?
-    // @compileLog(@sizeOf(@TypeOf(decodeFrame)));
-    dbg("NÅGONSTANS", .{});
-    // FAIL: not synchronized with inconsumed data!
-    lenny = try stdout.read(&buf);
-    dbg("read2: {}\n", .{lenny});
-    decoder.data = buf[0..lenny];
-    resume decoder.frame;
-    dbg("GÖTEBORD", .{});
-    resume decoder.frame;
+
+    while (true) {
+        const oldlen = decoder.data.len;
+        if (oldlen > 0 and decoder.data.ptr != &buf) {
+            // TODO: avoid move if remaining space is plenty (like > 900)
+            std.mem.copy(u8, &buf, decoder.data);
+        }
+        lenny = try stdout.read(buf[oldlen..]);
+        decoder.data = buf[0 .. oldlen + lenny];
+
+        resume decoder.frame;
+    }
+
     try nosuspend await decodeFrame;
 }
 
