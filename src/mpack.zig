@@ -101,7 +101,7 @@ pub const Decoder = struct {
     frame: anyframe = undefined,
 
     const Self = @This();
-    const Error = error{
+    pub const Error = error{
         MalformatedDataError,
         IncompleteData,
         UnexpectedTagError,

@@ -54,6 +54,8 @@ pub fn main() !void {
     dbg("{s}\n", .{slice});
     var decoder = mpack.Decoder{ .data = slice };
     var decodeFrame = async decodeLoop(&decoder);
+    // TODO: Y U so t h i c c?
+    // @compileLog(@sizeOf(@TypeOf(decodeFrame)));
     dbg("NÅGONSTANS", .{});
     // FAIL: not synchronized with inconsumed data!
     lenny = try stdout.read(&buf);
@@ -65,12 +67,17 @@ pub fn main() !void {
     try nosuspend await decodeFrame;
 }
 
-fn decodeLoop(decoder: *mpack.Decoder) !void {
+const RPCError = mpack.Decoder.Error || error{
+    MalformatedRPCMessage,
+};
+
+fn decodeLoop(decoder: *mpack.Decoder) RPCError!void {
     while (true) {
         var msgHead = try decoder.expectArray();
         if (msgHead < 3) {
-            return error.SIGFAIL;
+            return RPCError.MalformatedRPCMessage;
         }
+
         var msgKind = try decoder.expectUInt();
         switch (msgKind) {
             1 => try decodeResponse(decoder, msgHead),
@@ -80,7 +87,7 @@ fn decodeLoop(decoder: *mpack.Decoder) !void {
     }
 }
 
-fn decodeResponse(decoder: *mpack.Decoder, arraySize: u32) !void {
+fn decodeResponse(decoder: *mpack.Decoder, arraySize: u32) RPCError!void {
     if (arraySize != 4) {
         return error.MalformatedRPCMessage;
     }
@@ -92,7 +99,7 @@ fn decodeResponse(decoder: *mpack.Decoder, arraySize: u32) !void {
     dbg("{}\n", .{state});
 }
 
-fn decodeEvent(decoder: *mpack.Decoder, arraySize: u32) !void {
+fn decodeEvent(decoder: *mpack.Decoder, arraySize: u32) RPCError!void {
     if (arraySize != 3) {
         return error.MalformatedRPCMessage;
     }
