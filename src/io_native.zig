@@ -10,6 +10,7 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
     const argv = &[_][]const u8{ "nvim", "--embed" };
+    //const argv = &[_][]const u8{ "nvim", "--embed", "-u", "NORC" };
     const child = try std.ChildProcess.init(argv, &gpa.allocator);
     defer child.deinit();
 
@@ -131,10 +132,10 @@ fn handleRedraw(decoder: *mpack.Decoder) RPCError!void {
     var args = try decoder.expectArray();
     dbg("n-event: {}\n", .{args});
     while (args > 0) : (args -= 1) {
-        var saved = try decoder.push();
-        var iargs = try decoder.expectArray();
-        var iname = try decoder.expectString();
-        var event = name_map.get(iname) orelse .Unknown;
+        const saved = try decoder.push();
+        const iargs = try decoder.expectArray();
+        const iname = try decoder.expectString();
+        const event = name_map.get(iname) orelse .Unknown;
         switch (event) {
             .Grid_line => try handleGridLine(decoder, iargs - 1),
             .Flush => {
@@ -159,8 +160,24 @@ fn handleGridLine(decoder: *mpack.Decoder, nlines: u32) RPCError!void {
     dbg("==LINES {}\n", .{nlines});
     var i: u32 = 0;
     while (i < nlines) : (i += 1) {
-        var iytem = try decoder.expectArray();
-        dbg("IYTEM {}\n", .{iytem});
-        try decoder.skipAhead(iytem);
+        const saved = try decoder.push();
+        const iytem = try decoder.expectArray();
+        const grid = try decoder.expectUInt();
+        const row = try decoder.expectUInt();
+        const col = try decoder.expectUInt();
+        const ncells = try decoder.expectArray();
+        dbg("IYTEM {} {} {} {}: [", .{ grid, row, col, ncells });
+        var j: u32 = 0;
+        while (j < ncells) : (j += 1) {
+            const nsize = try decoder.expectArray();
+            const str = try decoder.expectString();
+            dbg("{s}", .{str});
+            try decoder.skipAhead(nsize - 1);
+        }
+        dbg("]\n", .{});
+
+        try decoder.skipAhead(iytem - 4);
+
+        try decoder.pop(saved);
     }
 }
