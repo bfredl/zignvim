@@ -100,11 +100,15 @@ pub const Decoder = struct {
     data: []u8,
     frame: ?anyframe = null,
 
+    bytes: u32 = 0,
+    items: usize = 0,
+
     const Self = @This();
     pub const Error = error{
         MalformatedDataError,
         IncompleteData,
         UnexpectedTagError,
+        InvalidDecodeOperation,
     };
 
     fn getMoreData(self: *Self) Error!void {
@@ -156,7 +160,38 @@ pub const Decoder = struct {
         return self.readFixExt(size);
     }
 
+    const debugMode = true;
+
+    pub fn start(self: *Self) Error!void {
+        if (self.bytes > 0 or self.items > 0) {
+            return error.InvalidDecodeOperation;
+        }
+        self.items = 1;
+    }
+
+    pub fn push(self: *Self) Error!usize {
+        if (self.items == 0) {
+            return error.InvalidDecodeOperation;
+        }
+        var saved = self.items - 1;
+        self.items = 1;
+        return saved;
+    }
+
+    pub fn pop(self: *Self, saved: usize) Error!void {
+        if (self.bytes != 0 or self.items != 0) {
+            return error.InvalidDecodeOperation;
+        }
+        self.items = saved;
+    }
+
     pub fn readHead(self: *Self) Error!ValueHead {
+        if (debugMode) {
+            if (self.bytes > 0 or self.items == 0) {
+                return error.InvalidDecodeOperation;
+            }
+        }
+        self.items -= 1;
         const first_byte = (try self.readBytes(1))[0];
 
         const val: ValueHead = switch (first_byte) {
@@ -198,6 +233,10 @@ pub const Decoder = struct {
             0xdf => .{ .Map = try self.readInt(u32) },
             0xe0...0xff => .{ .Int = @intCast(i64, first_byte) - 0x100 },
         };
+
+        var size = itemSize(val);
+        self.bytes += size.bytes;
+        self.items += size.items;
 
         return val;
     }
@@ -242,12 +281,11 @@ pub const Decoder = struct {
 
         const str = self.data[0..size];
         self.data = self.data[size..];
+        self.bytes -= size;
         return str;
     }
 
-    const ItemSize = struct { bytes: u32, items: usize };
-
-    fn itemSize(head: ValueHead) ItemSize {
+    fn itemSize(head: ValueHead) struct { bytes: u32, items: usize } {
         return switch (head) {
             .Str => |size| .{ .bytes = size, .items = 0 },
             .Bin => |size| .{ .bytes = size, .items = 0 },
@@ -259,22 +297,23 @@ pub const Decoder = struct {
     }
 
     pub fn skipAhead(self: *Self, skipped: usize) Error!void {
-        var bytes: u32 = 0;
         var items: usize = skipped;
+        if (self.bytes > 0 or skipped > self.items) {
+            return error.InvalidDecodeOperation;
+        }
 
-        while (bytes > 0 or items > 0) {
-            if (bytes > 0) {
+        while (self.bytes > 0 or items > 0) {
+            if (self.bytes > 0) {
                 if (self.data.len == 0) {
                     try self.getMoreData();
                 }
-                const skip = std.math.min(bytes, self.data.len);
+                const skip = std.math.min(self.bytes, self.data.len);
                 self.data = self.data[skip..];
-                bytes -= skip;
+                self.bytes -= skip;
             } else if (items > 0) {
                 const head = try self.readHead();
                 items -= 1;
                 const size = itemSize(head);
-                bytes += size.bytes;
                 items += size.items;
             }
         }

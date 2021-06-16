@@ -69,10 +69,12 @@ pub fn main() !void {
 
 const RPCError = mpack.Decoder.Error || error{
     MalformatedRPCMessage,
+    InvalidRedraw,
 };
 
 fn decodeLoop(decoder: *mpack.Decoder) RPCError!void {
     while (true) {
+        try decoder.start();
         var msgHead = try decoder.expectArray();
         if (msgHead < 3) {
             return RPCError.MalformatedRPCMessage;
@@ -116,6 +118,7 @@ fn decodeEvent(decoder: *mpack.Decoder, arraySize: u32) RPCError!void {
 const RedrawEvents = enum {
     Grid_line,
     Flush,
+    Unknown,
 };
 
 const name_map = std.ComptimeStringMap(RedrawEvents, .{
@@ -128,12 +131,36 @@ fn handleRedraw(decoder: *mpack.Decoder) RPCError!void {
     var args = try decoder.expectArray();
     dbg("n-event: {}\n", .{args});
     while (args > 0) : (args -= 1) {
+        var saved = try decoder.push();
         var iargs = try decoder.expectArray();
         var iname = try decoder.expectString();
-        dbg("event: {s} {}\n", .{ iname, iargs - 1 });
-        var event = name_map.get(iname);
-        dbg("{}\n", .{event});
-        try decoder.skipAhead(iargs - 1);
+        var event = name_map.get(iname) orelse .Unknown;
+        switch (event) {
+            .Grid_line => try handleGridLine(decoder, iargs - 1),
+            .Flush => {
+                //if (iargs != 2 or try decoder.expectArray() > 0) {
+                //    return error.InvalidRedraw;
+                // }
+                try decoder.skipAhead(iargs - 1);
+
+                dbg("==FLUSHED\n", .{});
+            },
+            .Unknown => {
+                dbg("! {s} {}\n", .{ iname, iargs - 1 });
+                try decoder.skipAhead(iargs - 1);
+            },
+        }
+        try decoder.pop(saved);
     }
-    dbg("==DUN REDRAW\n", .{});
+    dbg("==DUN REDRAW\n\n", .{});
+}
+
+fn handleGridLine(decoder: *mpack.Decoder, nlines: u32) RPCError!void {
+    dbg("==LINES {}\n", .{nlines});
+    var i: u32 = 0;
+    while (i < nlines) : (i += 1) {
+        var iytem = try decoder.expectArray();
+        dbg("IYTEM {}\n", .{iytem});
+        try decoder.skipAhead(iytem);
+    }
 }
