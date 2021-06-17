@@ -166,13 +166,22 @@ fn handleGridLine(decoder: *mpack.Decoder, nlines: u32) RPCError!void {
         const row = try decoder.expectUInt();
         const col = try decoder.expectUInt();
         const ncells = try decoder.expectArray();
-        dbg("IYTEM {} {} {} {}: [", .{ grid, row, col, ncells });
+        dbg("LINE: {} {} {} {}: [", .{ grid, row, col, ncells });
         var j: u32 = 0;
         while (j < ncells) : (j += 1) {
             const nsize = try decoder.expectArray();
             const str = try decoder.expectString();
-            dbg("{s}", .{str});
-            try decoder.skipAhead(nsize - 1);
+            var used: u8 = 1;
+            var repeat: u64 = 1;
+            if (nsize >= 3) {
+                const hl_id = try decoder.expectUInt();
+                repeat = try decoder.expectUInt();
+                used = 3;
+            }
+            while (repeat > 0) : (repeat -= 1) {
+                dbg("{s}", .{str});
+            }
+            try decoder.skipAhead(nsize - used);
         }
         dbg("]\n", .{});
 
