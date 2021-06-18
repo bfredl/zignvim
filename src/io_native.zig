@@ -51,7 +51,8 @@ pub fn main() !void {
     var buf: [1024]u8 = undefined;
     var lenny = try stdout.read(&buf);
     var decoder = mpack.Decoder{ .data = buf[0..lenny] };
-    var decodeFrame = async decodeLoop(&decoder);
+    var state = State{};
+    var decodeFrame = async decodeLoop(&decoder, &state);
 
     while (decoder.frame != null) {
         const oldlen = decoder.data.len;
@@ -68,12 +69,14 @@ pub fn main() !void {
     try nosuspend await decodeFrame;
 }
 
+const State = struct {};
+
 const RPCError = mpack.Decoder.Error || error{
     MalformatedRPCMessage,
     InvalidRedraw,
 };
 
-fn decodeLoop(decoder: *mpack.Decoder) RPCError!void {
+fn decodeLoop(decoder: *mpack.Decoder, state: *State) RPCError!void {
     while (true) {
         try decoder.start();
         var msgHead = try decoder.expectArray();
@@ -84,7 +87,7 @@ fn decodeLoop(decoder: *mpack.Decoder) RPCError!void {
         var msgKind = try decoder.expectUInt();
         switch (msgKind) {
             1 => try decodeResponse(decoder, msgHead),
-            2 => try decodeEvent(decoder, msgHead),
+            2 => try decodeEvent(decoder, state, msgHead),
             else => return error.MalformatedRPCMessage,
         }
     }
@@ -102,13 +105,13 @@ fn decodeResponse(decoder: *mpack.Decoder, arraySize: u32) RPCError!void {
     dbg("{}\n", .{state});
 }
 
-fn decodeEvent(decoder: *mpack.Decoder, arraySize: u32) RPCError!void {
+fn decodeEvent(decoder: *mpack.Decoder, state: *State, arraySize: u32) RPCError!void {
     if (arraySize != 3) {
         return error.MalformatedRPCMessage;
     }
     var name = try decoder.expectString();
     if (mem.eql(u8, name, "redraw")) {
-        try handleRedraw(decoder);
+        try handleRedraw(decoder, state);
     } else {
         // TODO: untested
         dbg("FEEEEL: {s}\n", .{name});
@@ -117,17 +120,21 @@ fn decodeEvent(decoder: *mpack.Decoder, arraySize: u32) RPCError!void {
 }
 
 const RedrawEvents = enum {
+    HlAttrDef,
     Grid_line,
     Flush,
+    Ignore,
     Unknown,
 };
 
 const name_map = std.ComptimeStringMap(RedrawEvents, .{
     .{ "grid_line", .Grid_line },
+    .{ "hl_group_set", .Ignore },
+    .{ "hl_attr_define", .HlAttrDef },
     .{ "flush", .Flush },
 });
 
-fn handleRedraw(decoder: *mpack.Decoder) RPCError!void {
+fn handleRedraw(decoder: *mpack.Decoder, state: *State) RPCError!void {
     dbg("==BEGIN REDRAW\n", .{});
     var args = try decoder.expectArray();
     dbg("n-event: {}\n", .{args});
@@ -137,7 +144,7 @@ fn handleRedraw(decoder: *mpack.Decoder) RPCError!void {
         const iname = try decoder.expectString();
         const event = name_map.get(iname) orelse .Unknown;
         switch (event) {
-            .Grid_line => try handleGridLine(decoder, iargs - 1),
+            .Grid_line => try handleGridLine(decoder, state, iargs - 1),
             .Flush => {
                 //if (iargs != 2 or try decoder.expectArray() > 0) {
                 //    return error.InvalidRedraw;
@@ -145,6 +152,12 @@ fn handleRedraw(decoder: *mpack.Decoder) RPCError!void {
                 try decoder.skipAhead(iargs - 1);
 
                 dbg("==FLUSHED\n", .{});
+            },
+            .HlAttrDef => {
+                try handleHlAttrDef(decoder, state, iargs - 1);
+            },
+            .Ignore => {
+                try decoder.skipAhead(iargs - 1);
             },
             .Unknown => {
                 dbg("! {s} {}\n", .{ iname, iargs - 1 });
@@ -156,7 +169,7 @@ fn handleRedraw(decoder: *mpack.Decoder) RPCError!void {
     dbg("==DUN REDRAW\n\n", .{});
 }
 
-fn handleGridLine(decoder: *mpack.Decoder, nlines: u32) RPCError!void {
+fn handleGridLine(decoder: *mpack.Decoder, state: *State, nlines: u32) RPCError!void {
     dbg("==LINES {}\n", .{nlines});
     var i: u32 = 0;
     while (i < nlines) : (i += 1) {
@@ -187,6 +200,28 @@ fn handleGridLine(decoder: *mpack.Decoder, nlines: u32) RPCError!void {
 
         try decoder.skipAhead(iytem - 4);
 
+        try decoder.pop(saved);
+    }
+}
+
+fn handleHlAttrDef(decoder: *mpack.Decoder, state: *State, nattrs: u32) RPCError!void {
+    dbg("==ATTRS {}\n", .{nattrs});
+    var i: u32 = 0;
+    while (i < nattrs) : (i += 1) {
+        const saved = try decoder.push();
+        const nsize = try decoder.expectArray();
+        const id = try decoder.expectUInt();
+        const rgb_attrs = try decoder.expectMap();
+        dbg("ATTEN: {} {}", .{ id, rgb_attrs });
+        var j: u32 = 0;
+        while (j < rgb_attrs) : (j += 1) {
+            const name = try decoder.expectString();
+            dbg(" {s}", .{name});
+            try decoder.skipAhead(1);
+        }
+        dbg("\n", .{});
+
+        try decoder.skipAhead(nsize - 2);
         try decoder.pop(saved);
     }
 }
