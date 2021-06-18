@@ -1,8 +1,10 @@
 const std = @import("std");
 const mem = std.mem;
+const stringToEnum = std.meta.stringToEnum;
 const dbg = std.debug.print;
 //pub fn dbg(a: anytype, b: anytype) void {}
 const mpack = @import("./mpack.zig");
+const ArrayList = std.ArrayList;
 
 const ChildProcess = std.ChildProcess;
 
@@ -23,7 +25,7 @@ pub fn main() !void {
     var stdin = &child.stdin.?;
     var stdout = &child.stdout.?;
 
-    const ByteArray = std.ArrayList(u8);
+    const ByteArray = ArrayList(u8);
     var x = ByteArray.init(&gpa.allocator);
     defer x.deinit();
     var encoder = mpack.Encoder(ByteArray.Writer){ .writer = x.writer() };
@@ -51,7 +53,7 @@ pub fn main() !void {
     var buf: [1024]u8 = undefined;
     var lenny = try stdout.read(&buf);
     var decoder = mpack.Decoder{ .data = buf[0..lenny] };
-    var state = State{};
+    var state = init_state(&gpa.allocator);
     var decodeFrame = async decodeLoop(&decoder, &state);
 
     while (decoder.frame != null) {
@@ -69,7 +71,17 @@ pub fn main() !void {
     try nosuspend await decodeFrame;
 }
 
-const State = struct {};
+const State = struct {
+    attr_arena: ArrayList(u8),
+    attr_off: ArrayList(u32),
+};
+
+fn init_state(allocator: *mem.Allocator) State {
+    return .{
+        .attr_arena = ArrayList(u8).init(allocator),
+        .attr_off = ArrayList(u32).init(allocator),
+    };
+}
 
 const RPCError = mpack.Decoder.Error || error{
     MalformatedRPCMessage,
@@ -120,19 +132,12 @@ fn decodeEvent(decoder: *mpack.Decoder, state: *State, arraySize: u32) RPCError!
 }
 
 const RedrawEvents = enum {
-    HlAttrDef,
-    Grid_line,
-    Flush,
-    Ignore,
+    hl_attr_define,
+    hl_group_set,
+    grid_line,
+    flush,
     Unknown,
 };
-
-const name_map = std.ComptimeStringMap(RedrawEvents, .{
-    .{ "grid_line", .Grid_line },
-    .{ "hl_group_set", .Ignore },
-    .{ "hl_attr_define", .HlAttrDef },
-    .{ "flush", .Flush },
-});
 
 fn handleRedraw(decoder: *mpack.Decoder, state: *State) RPCError!void {
     dbg("==BEGIN REDRAW\n", .{});
@@ -142,10 +147,10 @@ fn handleRedraw(decoder: *mpack.Decoder, state: *State) RPCError!void {
         const saved = try decoder.push();
         const iargs = try decoder.expectArray();
         const iname = try decoder.expectString();
-        const event = name_map.get(iname) orelse .Unknown;
+        const event = stringToEnum(RedrawEvents, iname) orelse .Unknown;
         switch (event) {
-            .Grid_line => try handleGridLine(decoder, state, iargs - 1),
-            .Flush => {
+            .grid_line => try handleGridLine(decoder, state, iargs - 1),
+            .flush => {
                 //if (iargs != 2 or try decoder.expectArray() > 0) {
                 //    return error.InvalidRedraw;
                 // }
@@ -153,10 +158,10 @@ fn handleRedraw(decoder: *mpack.Decoder, state: *State) RPCError!void {
 
                 dbg("==FLUSHED\n", .{});
             },
-            .HlAttrDef => {
+            .hl_attr_define => {
                 try handleHlAttrDef(decoder, state, iargs - 1);
             },
-            .Ignore => {
+            .hl_group_set => {
                 try decoder.skipAhead(iargs - 1);
             },
             .Unknown => {
@@ -216,8 +221,26 @@ fn handleHlAttrDef(decoder: *mpack.Decoder, state: *State, nattrs: u32) RPCError
         var j: u32 = 0;
         while (j < rgb_attrs) : (j += 1) {
             const name = try decoder.expectString();
-            dbg(" {s}", .{name});
-            try decoder.skipAhead(1);
+            const Keys = enum { foreground, background, bold, Unknown };
+            const key = stringToEnum(Keys, name) orelse .Unknown;
+            switch (key) {
+                .foreground => {
+                    const num = decoder.expectUInt();
+                    dbg(" fg={}", .{num});
+                },
+                .background => {
+                    const num = decoder.expectUInt();
+                    dbg(" bg={}", .{num});
+                },
+                .bold => {
+                    _ = try decoder.readHead();
+                    dbg(" BOLDEN", .{});
+                },
+                .Unknown => {
+                    dbg(" {s}", .{name});
+                    try decoder.skipAhead(1);
+                },
+            }
         }
         dbg("\n", .{});
 

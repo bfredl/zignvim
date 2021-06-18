@@ -59,7 +59,11 @@ pub fn main() !void {
 
     const Flags = c.uv_stdio_flags;
 
-    var uvstdio: [3]c.uv_stdio_container_t = .{ .{ .flags = @intToEnum(Flags, c.UV_CREATE_PIPE | c.UV_READABLE_PIPE), .data = .{ .stream = stdin } }, .{ .flags = @intToEnum(Flags, c.UV_CREATE_PIPE | c.UV_WRITABLE_PIPE), .data = .{ .stream = stdout } }, .{ .flags = @intToEnum(Flags, c.UV_INHERIT_FD), .data = .{ .fd = 2 } } };
+    var uvstdio: [3]c.uv_stdio_container_t = .{
+        .{ .flags = @intToEnum(Flags, c.UV_CREATE_PIPE | c.UV_READABLE_PIPE), .data = .{ .stream = stdin } },
+        .{ .flags = @intToEnum(Flags, c.UV_CREATE_PIPE | c.UV_WRITABLE_PIPE), .data = .{ .stream = stdout } },
+        .{ .flags = @intToEnum(Flags, c.UV_INHERIT_FD), .data = .{ .fd = 2 } },
+    };
 
     const args = &[_:null]?[*:0]u8{ "nvim", "--embed" };
     const yarg = @intToPtr([*c][*c]u8, @ptrToInt(args)); // yarrrg
