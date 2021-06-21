@@ -72,20 +72,25 @@ pub fn main() !void {
 }
 
 const State = struct {
+    const AttrOffset = struct { start: u32, end: u32 };
     attr_arena: ArrayList(u8),
-    attr_off: ArrayList(u32),
+    attr_off: ArrayList(AttrOffset),
+
+    hl_id: u32,
 };
 
 fn init_state(allocator: *mem.Allocator) State {
     return .{
         .attr_arena = ArrayList(u8).init(allocator),
-        .attr_off = ArrayList(u32).init(allocator),
+        .attr_off = ArrayList(State.AttrOffset).init(allocator),
+        .hl_id = 0,
     };
 }
 
 const RPCError = mpack.Decoder.Error || error{
     MalformatedRPCMessage,
     InvalidRedraw,
+    OutOfMemory,
 };
 
 fn decodeLoop(decoder: *mpack.Decoder, state: *State) RPCError!void {
@@ -191,10 +196,21 @@ fn handleGridLine(decoder: *mpack.Decoder, state: *State, nlines: u32) RPCError!
             const str = try decoder.expectString();
             var used: u8 = 1;
             var repeat: u64 = 1;
-            if (nsize >= 3) {
-                const hl_id = try decoder.expectUInt();
-                repeat = try decoder.expectUInt();
-                used = 3;
+            var hl_id: u32 = state.hl_id;
+
+            if (nsize >= 2) {
+                hl_id = @intCast(u32, try decoder.expectUInt());
+                used = 2;
+                if (nsize >= 3) {
+                    repeat = try decoder.expectUInt();
+                    used = 3;
+                }
+            }
+            if (hl_id != state.hl_id) {
+                state.hl_id = hl_id;
+                const islice = state.attr_off.items[hl_id];
+                const slice = state.attr_arena.items[islice.start..islice.end];
+                dbg("{s}", .{slice});
             }
             while (repeat > 0) : (repeat -= 1) {
                 dbg("{s}", .{str});
@@ -207,6 +223,14 @@ fn handleGridLine(decoder: *mpack.Decoder, state: *State, nlines: u32) RPCError!
 
         try decoder.pop(saved);
     }
+}
+
+//const native_endian = std.Target.current.cpu.arch.endian();
+const RGB = struct { a: u8, r: u8, g: u8, b: u8 };
+
+fn doColors(w: anytype, fg: bool, rgb: RGB) RPCError!void {
+    const kod = if (fg) "3" else "4";
+    try w.print("\x1b[{s}8;2;{};{};{}m", .{ kod, rgb.r, rgb.g, rgb.b });
 }
 
 fn handleHlAttrDef(decoder: *mpack.Decoder, state: *State, nattrs: u32) RPCError!void {
@@ -223,10 +247,12 @@ fn handleHlAttrDef(decoder: *mpack.Decoder, state: *State, nattrs: u32) RPCError
             const name = try decoder.expectString();
             const Keys = enum { foreground, background, bold, Unknown };
             const key = stringToEnum(Keys, name) orelse .Unknown;
+            var fg: ?u32 = null;
             switch (key) {
                 .foreground => {
-                    const num = decoder.expectUInt();
+                    const num = try decoder.expectUInt();
                     dbg(" fg={}", .{num});
+                    fg = @intCast(u32, num);
                 },
                 .background => {
                     const num = decoder.expectUInt();
@@ -241,6 +267,16 @@ fn handleHlAttrDef(decoder: *mpack.Decoder, state: *State, nattrs: u32) RPCError
                     try decoder.skipAhead(1);
                 },
             }
+            const pos = @intCast(u32, state.attr_arena.items.len);
+            const w = state.attr_arena.writer();
+            if (fg) |the_fg| {
+                const rgb = @bitCast(RGB, the_fg);
+                try doColors(w, true, rgb);
+            } else {
+                try w.writeAll("\x1b[0m");
+            }
+            const endpos = @intCast(u32, state.attr_arena.items.len);
+            try state.attr_off.append(.{ .start = pos, .end = endpos });
         }
         dbg("\n", .{});
 
