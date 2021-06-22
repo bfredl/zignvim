@@ -56,6 +56,10 @@ pub fn main() !void {
     var state = init_state(&gpa.allocator);
     var decodeFrame = async decodeLoop(&decoder, &state);
 
+    // @compileLog(@sizeOf(@Frame(decodeLoop)));
+    // 11920 with fully async readHead()
+    // 5928 without
+
     while (decoder.frame != null) {
         const oldlen = decoder.data.len;
         if (oldlen > 0 and decoder.data.ptr != &buf) {
