@@ -11,8 +11,8 @@ const ChildProcess = std.ChildProcess;
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
-    const argv = &[_][]const u8{ "nvim", "--embed" };
-    //const argv = &[_][]const u8{ "nvim", "--embed", "-u", "NORC" };
+    //const argv = &[_][]const u8{ "nvim", "--embed" };
+    const argv = &[_][]const u8{ "nvim", "--embed", "-u", "NORC" };
     const child = try std.ChildProcess.init(argv, &gpa.allocator);
     defer child.deinit();
 
@@ -79,6 +79,7 @@ const State = struct {
     const AttrOffset = struct { start: u32, end: u32 };
     attr_arena: ArrayList(u8),
     attr_off: ArrayList(AttrOffset),
+    writer: @TypeOf(std.io.getStdOut().writer()),
 
     hl_id: u32,
 };
@@ -88,6 +89,7 @@ fn init_state(allocator: *mem.Allocator) State {
         .attr_arena = ArrayList(u8).init(allocator),
         .attr_off = ArrayList(State.AttrOffset).init(allocator),
         .hl_id = 0,
+        .writer = std.io.getStdOut().writer(),
     };
 }
 
@@ -95,6 +97,7 @@ const RPCError = mpack.Decoder.Error || error{
     MalformatedRPCMessage,
     InvalidRedraw,
     OutOfMemory,
+    IOError,
 };
 
 fn decodeLoop(decoder: *mpack.Decoder, state: *State) RPCError!void {
@@ -166,6 +169,7 @@ fn handleRedraw(decoder: *mpack.Decoder, state: *State) RPCError!void {
                 try decoder.skipAhead(iargs - 1);
 
                 dbg("==FLUSHED\n", .{});
+                //std.time.sleep(1000 * 1000000);
             },
             .hl_attr_define => {
                 try handleHlAttrDef(decoder, state, iargs - 1);
@@ -194,6 +198,7 @@ fn handleGridLine(decoder: *mpack.Decoder, state: *State, nlines: u32) RPCError!
         const col = try decoder.expectUInt();
         const ncells = try decoder.expectArray();
         dbg("LINE: {} {} {} {}: [", .{ grid, row, col, ncells });
+        state.writer.print("\x1b[{};{}H", .{ row, col }) catch return RPCError.IOError;
         var j: u32 = 0;
         while (j < ncells) : (j += 1) {
             const nsize = try decoder.expectArray();
@@ -214,10 +219,11 @@ fn handleGridLine(decoder: *mpack.Decoder, state: *State, nlines: u32) RPCError!
                 state.hl_id = hl_id;
                 const islice = state.attr_off.items[hl_id];
                 const slice = state.attr_arena.items[islice.start..islice.end];
-                dbg("{s}", .{slice});
+                state.writer.writeAll(slice) catch return RPCError.IOError;
             }
             while (repeat > 0) : (repeat -= 1) {
                 dbg("{s}", .{str});
+                state.writer.writeAll(str) catch return RPCError.IOError;
             }
             try decoder.skipAhead(nsize - used);
         }
@@ -230,7 +236,7 @@ fn handleGridLine(decoder: *mpack.Decoder, state: *State, nlines: u32) RPCError!
 }
 
 //const native_endian = std.Target.current.cpu.arch.endian();
-const RGB = struct { a: u8, r: u8, g: u8, b: u8 };
+const RGB = struct { b: u8, g: u8, r: u8, a: u8 };
 
 fn doColors(w: anytype, fg: bool, rgb: RGB) RPCError!void {
     const kod = if (fg) "3" else "4";
