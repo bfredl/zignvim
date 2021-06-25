@@ -5,7 +5,7 @@ pub fn build(b: *Builder) void {
 
     const lib = b.addStaticLibrary("zignvim", "src/main.zig");
     lib.setBuildMode(mode);
-    lib.install();
+    //lib.install();
 
     const exe_uv = b.addExecutable("iotest_uv", "src/io_uv.zig");
     exe_uv.linkSystemLibrary("c");

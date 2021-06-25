@@ -217,8 +217,10 @@ fn handleGridLine(decoder: *mpack.Decoder, state: *State, nlines: u32) RPCError!
             }
             if (hl_id != state.hl_id) {
                 state.hl_id = hl_id;
-                const islice = state.attr_off.items[hl_id];
-                const slice = state.attr_arena.items[islice.start..islice.end];
+                const slice = if (hl_id > 0) theslice: {
+                    const islice = state.attr_off.items[hl_id];
+                    break :theslice state.attr_arena.items[islice.start..islice.end];
+                } else "\x1b[0m";
                 state.writer.writeAll(slice) catch return RPCError.IOError;
             }
             while (repeat > 0) : (repeat -= 1) {
@@ -251,13 +253,15 @@ fn handleHlAttrDef(decoder: *mpack.Decoder, state: *State, nattrs: u32) RPCError
         const nsize = try decoder.expectArray();
         const id = try decoder.expectUInt();
         const rgb_attrs = try decoder.expectMap();
-        dbg("ATTEN: {} {}", .{ id, rgb_attrs });
+        //dbg("ATTEN: {} {}", .{ id, rgb_attrs });
         var j: u32 = 0;
         while (j < rgb_attrs) : (j += 1) {
             const name = try decoder.expectString();
             const Keys = enum { foreground, background, bold, Unknown };
             const key = stringToEnum(Keys, name) orelse .Unknown;
             var fg: ?u32 = null;
+            var bg: ?u32 = null;
+            var bold = false;
             switch (key) {
                 .foreground => {
                     const num = try decoder.expectUInt();
@@ -265,12 +269,14 @@ fn handleHlAttrDef(decoder: *mpack.Decoder, state: *State, nattrs: u32) RPCError
                     fg = @intCast(u32, num);
                 },
                 .background => {
-                    const num = decoder.expectUInt();
+                    const num = try decoder.expectUInt();
                     dbg(" bg={}", .{num});
+                    bg = @intCast(u32, num);
                 },
                 .bold => {
                     _ = try decoder.readHead();
                     dbg(" BOLDEN", .{});
+                    bold = true;
                 },
                 .Unknown => {
                     dbg(" {s}", .{name});
@@ -279,18 +285,31 @@ fn handleHlAttrDef(decoder: *mpack.Decoder, state: *State, nattrs: u32) RPCError
             }
             const pos = @intCast(u32, state.attr_arena.items.len);
             const w = state.attr_arena.writer();
+            try w.writeAll("\x1b[0m");
             if (fg) |the_fg| {
                 const rgb = @bitCast(RGB, the_fg);
                 try doColors(w, true, rgb);
-            } else {
-                try w.writeAll("\x1b[0m");
+            }
+            if (bg) |the_bg| {
+                const rgb = @bitCast(RGB, the_bg);
+                try doColors(w, false, rgb);
+            }
+            if (bold) {
+                try w.writeAll("\x1b[1m");
             }
             const endpos = @intCast(u32, state.attr_arena.items.len);
-            try state.attr_off.append(.{ .start = pos, .end = endpos });
+            try putAt(&state.attr_off, id, .{ .start = pos, .end = endpos });
         }
         dbg("\n", .{});
 
         try decoder.skipAhead(nsize - 2);
         try decoder.pop(saved);
     }
+}
+
+fn putAt(array_list: anytype, index: usize, item: anytype) !void {
+    if (array_list.items.len < index + 1) {
+        try array_list.resize(index + 1);
+    }
+    array_list.items[index] = item;
 }
