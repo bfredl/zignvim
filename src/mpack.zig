@@ -58,7 +58,7 @@ pub fn Encoder(comptime WriterType: type) type {
         }
 
         pub fn putInt(self: Self, val: anytype) Error!void {
-            comptime const unsigned = switch (@typeInfo(@TypeOf(val))) {
+            const unsigned = comptime switch (@typeInfo(@TypeOf(val))) {
                 .Int => |int| int.signedness == .Unsigned,
                 .ComptimeInt => false, // or val >= 0 but handled below
                 else => unreachable,
