@@ -1,9 +1,10 @@
 // zig build-exe gtk_main.zig -I/usr/include/gtk-4.0 -I/usr/include/pango-1.0 -I/usr/include/glib-2.0 -I/usr/lib/glib-2.0/include -I/usr/include/harfbuzz -I/usr/include/freetype2 -I/usr/include/libpng16 -I/usr/include/libmount -I/usr/include/blkid -I/usr/include/fribidi -I/usr/include/cairo -I/usr/include/lzo -I/usr/include/pixman-1 -I/usr/include/gdk-pixbuf-2.0 -I/usr/include/graphene-1.0 -I/usr/lib/graphene-1.0/include -I/usr/include/gio-unix-2.0 -I/usr/include/ -lgtk-4 -lpangocairo-1.0 -lpango-1.0 -lharfbuzz -lgdk_pixbuf-2.0 -lcairo-gobject -lcairo -lvulkan -lgraphene-1.0 -lgio-2.0 -lgobject-2.0 -lglib-2.0 -lc
 
 const std = @import("std");
-const c = @cImport({
-    @cInclude("gtk/gtk.h");
-});
+const c = @import("gtk_c.zig");
+const gtk_lib = @import("gtk_lib.zig");
+const GTK_WINDOW = gtk_lib.GTK_WINDOW;
+const G_CALLBACK = gtk_lib.G_CALLBACK;
 
 pub fn print_hello(arg_widget: [*c]c.GtkWidget, arg_data: c.gpointer) callconv(.C) void {
     var widget = arg_widget;
@@ -11,19 +12,6 @@ pub fn print_hello(arg_widget: [*c]c.GtkWidget, arg_data: c.gpointer) callconv(.
     var data = arg_data;
     _ = data;
     c.g_print("Hello World\n");
-}
-
-// translate-C of GTK_WINDOW etc macros fails, let's doit ourselves
-pub fn gtk_cast(comptime T: type, gtk_type: anytype, value: anytype) *T {
-    return @ptrCast(*T, @alignCast(@import("std").meta.alignment(T), c.g_type_check_instance_cast(@ptrCast([*c]c.GTypeInstance, @alignCast(@import("std").meta.alignment(c.GTypeInstance), value)), gtk_type)));
-}
-
-pub fn GTK_WINDOW(value: anytype) *c.GtkWindow {
-    return gtk_cast(c.GtkWindow, c.gtk_window_get_type(), value);
-}
-
-pub fn G_CALLBACK(value: anytype) c.GCallback {
-    return @ptrCast(c.GCallback, @alignCast(@import("std").meta.alignment(fn () callconv(.C) void), value));
 }
 
 pub fn activate(arg_app: [*c]c.GtkApplication, arg_user_data: c.gpointer) callconv(.C) void {
