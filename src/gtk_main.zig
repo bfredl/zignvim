@@ -16,15 +16,12 @@ pub fn print_hello(arg_widget: [*c]c.GtkWidget, arg_data: c.gpointer) callconv(.
 
 pub fn activate(app: [*c]c.GtkApplication, user_data: c.gpointer) callconv(.C) void {
     _ = user_data;
-    var window: [*c]c.GtkWidget = undefined;
-    var button: [*c]c.GtkWidget = undefined;
-    var box: [*c]c.GtkWidget = undefined;
-    window = c.gtk_application_window_new(app);
+    var window: *c.GtkWidget = c.gtk_application_window_new(app);
     c.gtk_window_set_title(g.GTK_WINDOW(window), "Window");
     c.gtk_window_set_default_size(g.GTK_WINDOW(window), @as(c_int, 200), @as(c_int, 200));
-    box = c.gtk_box_new(@bitCast(c_uint, c.GTK_ORIENTATION_HORIZONTAL), @as(c_int, 0));
+    var box: *c.GtkWidget = c.gtk_box_new(@bitCast(c_uint, c.GTK_ORIENTATION_HORIZONTAL), @as(c_int, 0));
     c.gtk_window_set_child(g.GTK_WINDOW(window), box);
-    button = c.gtk_button_new_with_label("Hello World");
+    var button: *c.GtkWidget = c.gtk_button_new_with_label("Hello World");
     _ = c.g_signal_connect_data(@ptrCast(c.gpointer, button), "clicked", G_CALLBACK(print_hello), @intToPtr(?*c_void, @as(c_int, 0)), null, @bitCast(c_uint, @as(c_int, 0)));
     _ = c.g_signal_connect_data(@ptrCast(c.gpointer, button), "clicked", G_CALLBACK(c.gtk_window_destroy), @ptrCast(c.gpointer, window), null, @bitCast(c_uint, c.G_CONNECT_SWAPPED));
     c.gtk_box_append(g.GTK_BOX(box), button);
@@ -33,11 +30,9 @@ pub fn activate(app: [*c]c.GtkApplication, user_data: c.gpointer) callconv(.C) v
 pub export fn main() u8 {
     var argc = @intCast(c_int, std.os.argv.len);
     var argv = @ptrCast([*c][*c]u8, std.os.argv.ptr);
-    var app: [*c]c.GtkApplication = undefined;
-    var status: c_int = undefined;
-    app = c.gtk_application_new("io.github.bfredl.zignvim", @bitCast(c_uint, c.G_APPLICATION_FLAGS_NONE));
+    var app: *c.GtkApplication = c.gtk_application_new("io.github.bfredl.zignvim", @bitCast(c_uint, c.G_APPLICATION_FLAGS_NONE));
     _ = c.g_signal_connect_data(@ptrCast(c.gpointer, app), "activate", @ptrCast(c.GCallback, @alignCast(@import("std").meta.alignment(fn () callconv(.C) void), activate)), @intToPtr(?*c_void, @as(c_int, 0)), null, @bitCast(c_uint, @as(c_int, 0)));
-    status = c.g_application_run(@ptrCast([*c]c.GApplication, @alignCast(@import("std").meta.alignment(c.GApplication), c.g_type_check_instance_cast(@ptrCast([*c]c.GTypeInstance, @alignCast(@import("std").meta.alignment(c.GTypeInstance), app)), c.g_application_get_type()))), argc, argv);
+    var status = c.g_application_run(@ptrCast([*c]c.GApplication, @alignCast(@import("std").meta.alignment(c.GApplication), c.g_type_check_instance_cast(@ptrCast([*c]c.GTypeInstance, @alignCast(@import("std").meta.alignment(c.GTypeInstance), app)), c.g_application_get_type()))), argc, argv);
     c.g_object_unref(@ptrCast(c.gpointer, app));
     return @intCast(u8, status);
 }
