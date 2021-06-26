@@ -13,8 +13,17 @@ pub fn print_hello(arg_widget: [*c]c.GtkWidget, arg_data: c.gpointer) callconv(.
     c.g_print("Hello World\n");
 }
 
+// translate-C of GTK_WINDOW etc macros fails, let's doit ourselves
 pub fn gtk_cast(comptime T: type, gtk_type: anytype, value: anytype) *T {
     return @ptrCast(*T, @alignCast(@import("std").meta.alignment(T), c.g_type_check_instance_cast(@ptrCast([*c]c.GTypeInstance, @alignCast(@import("std").meta.alignment(c.GTypeInstance), value)), gtk_type)));
+}
+
+pub fn GTK_WINDOW(value: anytype) *c.GtkWindow {
+    return gtk_cast(c.GtkWindow, c.gtk_window_get_type(), value);
+}
+
+pub fn G_CALLBACK(value: anytype) c.GCallback {
+    return @ptrCast(c.GCallback, @alignCast(@import("std").meta.alignment(fn () callconv(.C) void), value));
 }
 
 pub fn activate(arg_app: [*c]c.GtkApplication, arg_user_data: c.gpointer) callconv(.C) void {
@@ -29,12 +38,12 @@ pub fn activate(arg_app: [*c]c.GtkApplication, arg_user_data: c.gpointer) callco
     var box: [*c]c.GtkWidget = undefined;
     _ = box;
     window = c.gtk_application_window_new(app);
-    c.gtk_window_set_title(gtk_cast(c.GtkWindow, c.gtk_window_get_type(), window), "Window");
+    c.gtk_window_set_title(GTK_WINDOW(window), "Window");
     c.gtk_window_set_default_size(@ptrCast([*c]c.GtkWindow, @alignCast(@import("std").meta.alignment(c.GtkWindow), c.g_type_check_instance_cast(@ptrCast([*c]c.GTypeInstance, @alignCast(@import("std").meta.alignment(c.GTypeInstance), window)), c.gtk_window_get_type()))), @as(c_int, 200), @as(c_int, 200));
     box = c.gtk_box_new(@bitCast(c_uint, c.GTK_ORIENTATION_HORIZONTAL), @as(c_int, 0));
     c.gtk_window_set_child(@ptrCast([*c]c.GtkWindow, @alignCast(@import("std").meta.alignment(c.GtkWindow), c.g_type_check_instance_cast(@ptrCast([*c]c.GTypeInstance, @alignCast(@import("std").meta.alignment(c.GTypeInstance), window)), c.gtk_window_get_type()))), box);
     button = c.gtk_button_new_with_label("Hello World");
-    _ = c.g_signal_connect_data(@ptrCast(c.gpointer, button), "clicked", @ptrCast(c.GCallback, @alignCast(@import("std").meta.alignment(fn () callconv(.C) void), print_hello)), @intToPtr(?*c_void, @as(c_int, 0)), null, @bitCast(c_uint, @as(c_int, 0)));
+    _ = c.g_signal_connect_data(@ptrCast(c.gpointer, button), "clicked", G_CALLBACK(print_hello), @intToPtr(?*c_void, @as(c_int, 0)), null, @bitCast(c_uint, @as(c_int, 0)));
     _ = c.g_signal_connect_data(@ptrCast(c.gpointer, button), "clicked", @ptrCast(c.GCallback, @alignCast(@import("std").meta.alignment(fn () callconv(.C) void), c.gtk_window_destroy)), @ptrCast(c.gpointer, window), null, @bitCast(c_uint, c.G_CONNECT_SWAPPED));
     c.gtk_box_append(@ptrCast([*c]c.GtkBox, @alignCast(@import("std").meta.alignment(c.GtkBox), c.g_type_check_instance_cast(@ptrCast([*c]c.GTypeInstance, @alignCast(@import("std").meta.alignment(c.GTypeInstance), box)), c.gtk_box_get_type()))), button);
     c.gtk_widget_show(window);
