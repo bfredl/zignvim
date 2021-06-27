@@ -3,7 +3,7 @@ const c = @import("gtk_c.zig");
 
 // translate-C of GTK_WINDOW etc macros fails, let's doit ourselves
 pub fn g_cast(comptime T: type, gtk_type: c.GType, value: anytype) *T {
-    return @ptrCast(*T, c.g_type_check_instance_cast(@ptrCast(*c.GTypeInstance, value), gtk_type));
+    return @ptrCast(*T, c.g_type_check_instance_cast(@ptrCast(*c.GTypeInstance, @alignCast(std.meta.alignment(c.GTypeInstance), value)), gtk_type));
 }
 
 pub fn GTK_WINDOW(value: anytype) *c.GtkWindow {

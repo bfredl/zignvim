@@ -10,6 +10,25 @@ pub fn key_pressed(_: *c.GtkEventControllerKey, keyval: c.guint, keycode: c.guin
     c.g_print("Hellooooo!\n");
 }
 
+pub fn commit(_: *c.GtkIMContext, str: [*:0]const u8, data: c.gpointer) callconv(.C) void {
+    _ = data;
+    c.g_print("aha: ");
+    c.g_print(str);
+    c.g_print("\n");
+}
+
+pub fn focus_enter(_: *c.GtkEventControllerFocus, data: c.gpointer) callconv(.C) void {
+    c.g_print("änter\n");
+    var im_context = @ptrCast(*c.GtkIMContext, @alignCast(@alignOf(c.GtkIMContext), data));
+    c.gtk_im_context_focus_in(im_context);
+}
+
+pub fn focus_leave(_: *c.GtkEventControllerFocus, data: c.gpointer) callconv(.C) void {
+    c.g_print("you must leave now\n");
+    var im_context = @ptrCast(*c.GtkIMContext, @alignCast(@alignOf(c.GtkIMContext), data));
+    c.gtk_im_context_focus_out(im_context);
+}
+
 pub fn activate(app: *c.GtkApplication, user_data: c.gpointer) callconv(.C) void {
     _ = user_data;
     var window: *c.GtkWidget = c.gtk_application_window_new(app);
@@ -22,7 +41,21 @@ pub fn activate(app: *c.GtkApplication, user_data: c.gpointer) callconv(.C) void
     c.gtk_drawing_area_set_content_height(g.GTK_DRAWING_AREA(da), 500);
     var key_ev = c.gtk_event_controller_key_new();
     c.gtk_widget_add_controller(window, key_ev);
+    var im_context = c.gtk_im_multicontext_new();
+    c.gtk_event_controller_key_set_im_context(g.g_cast(c.GtkEventControllerKey, c.gtk_event_controller_key_get_type(), key_ev), im_context);
+    //c.gtk_im_context_set_client_window(im_context, da);
+    c.gtk_im_context_set_use_preedit(im_context, c.FALSE);
     _ = g.g_signal_connect(key_ev, "key-pressed", g.G_CALLBACK(key_pressed), null);
+    _ = g.g_signal_connect(im_context, "commit", g.G_CALLBACK(commit), null);
+
+    var focus_ev = c.gtk_event_controller_focus_new();
+    c.gtk_widget_add_controller(window, focus_ev);
+    // TODO: this does not work! (when ALT-TAB)
+    _ = g.g_signal_connect(focus_ev, "enter", g.G_CALLBACK(focus_enter), im_context);
+    _ = g.g_signal_connect(focus_ev, "leave", g.G_CALLBACK(focus_leave), im_context);
+    c.gtk_widget_set_focusable(window, 1);
+    c.gtk_widget_set_focusable(da, 1);
+
     //_ = g.g_signal_connect_swapped(da, "clicked", g.G_CALLBACK(c.gtk_window_destroy), window);
     c.gtk_box_append(g.GTK_BOX(box), da);
     c.gtk_widget_show(window);
