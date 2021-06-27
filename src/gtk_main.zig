@@ -2,10 +2,12 @@ const std = @import("std");
 const c = @import("gtk_c.zig");
 const g = @import("gtk_lib.zig");
 
-pub fn print_hello(widget: *c.GtkWidget, data: c.gpointer) callconv(.C) void {
-    _ = widget;
+pub fn key_pressed(_: *c.GtkEventControllerKey, keyval: c.guint, keycode: c.guint, mod: c.GdkModifierType, data: c.gpointer) callconv(.C) void {
+    _ = keyval;
+    _ = keycode;
+    _ = mod;
     _ = data;
-    c.g_print("Hello World\n");
+    c.g_print("Hellooooo!\n");
 }
 
 pub fn activate(app: *c.GtkApplication, user_data: c.gpointer) callconv(.C) void {
@@ -15,10 +17,14 @@ pub fn activate(app: *c.GtkApplication, user_data: c.gpointer) callconv(.C) void
     c.gtk_window_set_default_size(g.GTK_WINDOW(window), 200, 200);
     var box: *c.GtkWidget = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 0);
     c.gtk_window_set_child(g.GTK_WINDOW(window), box);
-    var button: *c.GtkWidget = c.gtk_button_new_with_label("Hello World");
-    _ = g.g_signal_connect(button, "clicked", g.G_CALLBACK(print_hello), null);
-    _ = g.g_signal_connect_swapped(button, "clicked", g.G_CALLBACK(c.gtk_window_destroy), window);
-    c.gtk_box_append(g.GTK_BOX(box), button);
+    var da: *c.GtkWidget = c.gtk_drawing_area_new();
+    c.gtk_drawing_area_set_content_width(g.GTK_DRAWING_AREA(da), 500);
+    c.gtk_drawing_area_set_content_height(g.GTK_DRAWING_AREA(da), 500);
+    var key_ev = c.gtk_event_controller_key_new();
+    c.gtk_widget_add_controller(window, key_ev);
+    _ = g.g_signal_connect(key_ev, "key-pressed", g.G_CALLBACK(key_pressed), null);
+    //_ = g.g_signal_connect_swapped(da, "clicked", g.G_CALLBACK(c.gtk_window_destroy), window);
+    c.gtk_box_append(g.GTK_BOX(box), da);
     c.gtk_widget_show(window);
 }
 pub export fn main() u8 {

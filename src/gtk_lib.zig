@@ -14,6 +14,10 @@ pub fn GTK_BOX(value: anytype) *c.GtkBox {
     return g_cast(c.GtkBox, c.gtk_box_get_type(), value);
 }
 
+pub fn GTK_DRAWING_AREA(value: anytype) *c.GtkDrawingArea {
+    return g_cast(c.GtkDrawingArea, c.gtk_drawing_area_get_type(), value);
+}
+
 pub fn G_CALLBACK(value: anytype) c.GCallback {
     return @ptrCast(c.GCallback, @alignCast(std.meta.alignment(fn () callconv(.C) void), value));
 }
