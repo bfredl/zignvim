@@ -25,8 +25,8 @@ pub export fn main() u8 {
     var argc = @intCast(c_int, std.os.argv.len);
     var argv = @ptrCast([*c][*c]u8, std.os.argv.ptr);
     var app: *c.GtkApplication = c.gtk_application_new("io.github.bfredl.zignvim", c.G_APPLICATION_FLAGS_NONE);
+    defer c.g_object_unref(@ptrCast(c.gpointer, app));
     _ = g.g_signal_connect(app, "activate", g.G_CALLBACK(activate), c.NULL);
     var status = c.g_application_run(g.g_cast(c.GApplication, c.g_application_get_type(), app), argc, argv);
-    c.g_object_unref(@ptrCast(c.gpointer, app));
     return @intCast(u8, status);
 }

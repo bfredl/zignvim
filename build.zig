@@ -35,6 +35,9 @@ pub fn build(b: *Builder) void {
 
     const iotest_step = b.step("iotest", "Basic ");
     const run = exe.run();
-    // test_step.dependOn(&main_tests.step);
     iotest_step.dependOn(&run.step);
+
+    const gtktest_step = b.step("gtktest", "Accomplished ");
+    const gtkrun = exe_gtk.run();
+    gtktest_step.dependOn(&gtkrun.step);
 }
