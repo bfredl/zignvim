@@ -13,6 +13,12 @@ pub fn build(b: *Builder) void {
     exe_uv.setBuildMode(mode);
     // exe_uv.install();
 
+    const exe_gtk = b.addExecutable("gtk_main", "src/gtk_main.zig");
+    exe_gtk.linkLibC();
+    exe_gtk.linkSystemLibrary("gtk4");
+    exe_gtk.setBuildMode(mode);
+    exe_gtk.install();
+
     const exe = b.addExecutable("iotest", "src/io_native.zig");
     exe.setBuildMode(mode);
     exe.install();
