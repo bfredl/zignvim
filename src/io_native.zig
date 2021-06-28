@@ -1,31 +1,27 @@
 const std = @import("std");
 const mem = std.mem;
-const stringToEnum = std.meta.stringToEnum;
 const mpack = @import("./mpack.zig");
 const RPC = @import("./RPC.zig");
 const ArrayList = std.ArrayList;
 
 const ChildProcess = std.ChildProcess;
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-
+pub fn spawn(allocator: *mem.Allocator) !*std.ChildProcess {
     //const argv = &[_][]const u8{ "nvim", "--embed" };
     const argv = &[_][]const u8{ "nvim", "--embed", "-u", "NORC" };
-    const child = try std.ChildProcess.init(argv, &gpa.allocator);
-    defer child.deinit();
+    const child = try std.ChildProcess.init(argv, allocator);
 
     child.stdout_behavior = ChildProcess.StdIo.Pipe;
     child.stdin_behavior = ChildProcess.StdIo.Pipe;
     child.stderr_behavior = ChildProcess.StdIo.Inherit;
 
     try child.spawn();
+    return child;
+}
 
-    var stdin = &child.stdin.?;
-    var stdout = &child.stdout.?;
-
+pub fn attach_test(stdin: anytype, allocator: *mem.Allocator) !void {
     const ByteArray = ArrayList(u8);
-    var x = ByteArray.init(&gpa.allocator);
+    var x = ByteArray.init(allocator);
     defer x.deinit();
     var encoder = mpack.Encoder(ByteArray.Writer){ .writer = x.writer() };
 
@@ -49,10 +45,13 @@ pub fn main() !void {
     }
 
     try stdin.writeAll(x.items);
+}
+
+pub fn dummy_loop(stdout: anytype, allocator: *mem.Allocator) !void {
     var buf: [1024]u8 = undefined;
     var lenny = try stdout.read(&buf);
     var decoder = mpack.Decoder{ .data = buf[0..lenny] };
-    var rpc = RPC.init(&gpa.allocator);
+    var rpc = RPC.init(allocator);
     var decodeFrame = async rpc.decodeLoop(&decoder);
 
     // @compileLog(@sizeOf(@Frame(decodeLoop)));

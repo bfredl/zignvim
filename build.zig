@@ -19,7 +19,7 @@ pub fn build(b: *Builder) void {
     exe_gtk.setBuildMode(mode);
     exe_gtk.install();
 
-    const exe = b.addExecutable("iotest", "src/io_native.zig");
+    const exe = b.addExecutable("iotest", "src/io_test.zig");
     exe.setBuildMode(mode);
     exe.install();
 
