@@ -6,6 +6,7 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     // They said I’m doomed to be a child
     var child = try io_native.spawn(&gpa.allocator);
+    defer child.deinit();
     try io_native.attach_test(&child.stdin.?, &gpa.allocator);
     try io_native.dummy_loop(&child.stdout.?, &gpa.allocator);
 }
