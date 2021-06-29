@@ -2,7 +2,6 @@ const std = @import("std");
 const mem = std.mem;
 const mpack = @import("./mpack.zig");
 const RPC = @import("./RPC.zig");
-const ArrayList = std.ArrayList;
 
 const ChildProcess = std.ChildProcess;
 
@@ -14,17 +13,11 @@ pub fn spawn(allocator: *mem.Allocator) !*std.ChildProcess {
     child.stdout_behavior = ChildProcess.StdIo.Pipe;
     child.stdin_behavior = ChildProcess.StdIo.Pipe;
     child.stderr_behavior = ChildProcess.StdIo.Inherit;
-
     try child.spawn();
     return child;
 }
 
-pub fn attach_test(stdin: anytype, allocator: *mem.Allocator) !void {
-    const ByteArray = ArrayList(u8);
-    var x = ByteArray.init(allocator);
-    defer x.deinit();
-    var encoder = mpack.Encoder(ByteArray.Writer){ .writer = x.writer() };
-
+pub fn attach_test(encoder: anytype) !void {
     if (false) {
         try encoder.putArrayHead(4);
         try encoder.putInt(0); // request
@@ -43,8 +36,14 @@ pub fn attach_test(stdin: anytype, allocator: *mem.Allocator) !void {
         try encoder.putStr("ext_linegrid");
         try encoder.putBool(true);
     }
+}
 
-    try stdin.writeAll(x.items);
+pub fn unsafe_input(encoder: anytype, input: []u8) !void {
+    try encoder.putArrayHead(3);
+    try encoder.putInt(2); // request
+    try encoder.putStr("nvim_input");
+    try encoder.putArrayHead(1);
+    try encoder.putStr(input);
 }
 
 pub fn dummy_loop(stdout: anytype, allocator: *mem.Allocator) !void {

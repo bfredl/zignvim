@@ -1,4 +1,7 @@
 const std = @import("std");
+const ArrayList = std.ArrayList;
+const mpack = @import("./mpack.zig");
+
 const io_native = @import("./io_native.zig");
 
 pub fn main() !void {
@@ -7,6 +10,13 @@ pub fn main() !void {
     // They said I’m doomed to be a child
     var child = try io_native.spawn(&gpa.allocator);
     defer child.deinit();
-    try io_native.attach_test(&child.stdin.?, &gpa.allocator);
+
+    const ByteArray = ArrayList(u8);
+    var x = ByteArray.init(&gpa.allocator);
+    defer x.deinit();
+    var encoder = mpack.Encoder(ByteArray.Writer){ .writer = x.writer() };
+    try io_native.attach_test(&encoder);
+    try child.stdin.?.writeAll(x.items);
+
     try io_native.dummy_loop(&child.stdout.?, &gpa.allocator);
 }
