@@ -81,6 +81,10 @@ pub fn Encoder(comptime WriterType: type) type {
     };
 }
 
+pub fn encoder(writer: anytype) Encoder(@TypeOf(writer)) {
+    return .{ .writer = writer };
+}
+
 pub const ExtHead = struct { kind: i8, size: u32 };
 pub const ValueHead = union(enum) {
     Null,
@@ -352,10 +356,10 @@ test {
     const allocator = testing.allocator;
     var x = ArrayList(u8).init(allocator);
     defer x.deinit();
-    var encoder = Encoder(ArrayList(u8).Writer){ .writer = x.writer() };
-    try encoder.startArray(4);
-    try encoder.putInt(4);
-    try encoder.putInt(200);
+    var enc = encoder(x.writer());
+    try enc.startArray(4);
+    try enc.putInt(4);
+    try enc.putInt(200);
 
     try testing.expectEqualSlices(u8, &[_]u8{ 0x94, 0x04, 0xcc, 0xc8 }, x.items);
 

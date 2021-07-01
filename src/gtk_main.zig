@@ -3,11 +3,23 @@ const c = @import("gtk_c.zig");
 const g = @import("gtk_lib.zig");
 const io = @import("io_native.zig");
 
+const ArrayList = std.ArrayList;
+const mpack = @import("./mpack.zig");
+
 const Self = @This();
-child: *std.ChildProcess = undefined,
+
+const io_mode = std.io.Mode.evented;
+
 gpa: std.heap.GeneralPurposeAllocator(.{}),
 
-pub fn key_pressed(_: *c.GtkEventControllerKey, keyval: c.guint, keycode: c.guint, mod: c.GdkModifierType, data: c.gpointer) callconv(.C) void {
+child: *std.ChildProcess = undefined,
+enc_buffer: ArrayList(u8) = undefined,
+
+fn get_self(data: c.gpointer) *Self {
+    return @ptrCast(*Self, @alignCast(@alignOf(Self), data));
+}
+
+fn key_pressed(_: *c.GtkEventControllerKey, keyval: c.guint, keycode: c.guint, mod: c.GdkModifierType, data: c.gpointer) callconv(.C) void {
     _ = keyval;
     _ = keycode;
     _ = mod;
@@ -15,29 +27,37 @@ pub fn key_pressed(_: *c.GtkEventControllerKey, keyval: c.guint, keycode: c.guin
     c.g_print("Hellooooo!\n");
 }
 
-pub fn commit(_: *c.GtkIMContext, str: [*:0]const u8, data: c.gpointer) callconv(.C) void {
+fn commit(_: *c.GtkIMContext, str: [*:0]const u8, data: c.gpointer) callconv(.C) void {
     _ = data;
     c.g_print("aha: ");
     c.g_print(str);
     c.g_print("\n");
 }
 
-pub fn focus_enter(_: *c.GtkEventControllerFocus, data: c.gpointer) callconv(.C) void {
+fn focus_enter(_: *c.GtkEventControllerFocus, data: c.gpointer) callconv(.C) void {
     c.g_print("änter\n");
     var im_context = @ptrCast(*c.GtkIMContext, @alignCast(@alignOf(c.GtkIMContext), data));
     c.gtk_im_context_focus_in(im_context);
 }
 
-pub fn focus_leave(_: *c.GtkEventControllerFocus, data: c.gpointer) callconv(.C) void {
+fn focus_leave(_: *c.GtkEventControllerFocus, data: c.gpointer) callconv(.C) void {
     c.g_print("you must leave now\n");
     var im_context = @ptrCast(*c.GtkIMContext, @alignCast(@alignOf(c.GtkIMContext), data));
     c.gtk_im_context_focus_out(im_context);
 }
 
-pub fn activate(app: *c.GtkApplication, user_data: c.gpointer) callconv(.C) void {
-    var self: *Self = @ptrCast(*Self, @alignCast(@alignOf(Self), user_data));
-    self.* = Self{ .gpa = std.heap.GeneralPurposeAllocator(.{}){} };
-    self.child = io.spawn(&self.gpa.allocator) catch @panic("heeee");
+fn init(self: *Self) !void {
+    self.child = try io.spawn(&self.gpa.allocator);
+    self.enc_buffer = ArrayList(u8).init(&self.gpa.allocator);
+    var encoder = mpack.encoder(self.enc_buffer.writer());
+    try io.attach_test(&encoder);
+    try self.child.stdin.?.writeAll(self.enc_buffer.items);
+    try self.enc_buffer.resize(0);
+}
+
+fn activate(app: *c.GtkApplication, data: c.gpointer) callconv(.C) void {
+    var self = get_self(data);
+    self.init() catch @panic("heeee");
 
     var window: *c.GtkWidget = c.gtk_application_window_new(app);
     c.gtk_window_set_title(g.GTK_WINDOW(window), "Window");
@@ -68,11 +88,11 @@ pub fn activate(app: *c.GtkApplication, user_data: c.gpointer) callconv(.C) void
     c.gtk_box_append(g.GTK_BOX(box), da);
     c.gtk_widget_show(window);
 }
-pub export fn main() u8 {
+pub fn main() u8 {
     var argc = @intCast(c_int, std.os.argv.len);
     var argv = @ptrCast([*c][*c]u8, std.os.argv.ptr);
 
-    var self: Self = undefined;
+    var self = Self{ .gpa = std.heap.GeneralPurposeAllocator(.{}){} };
 
     var app: *c.GtkApplication = c.gtk_application_new("io.github.bfredl.zignvim", c.G_APPLICATION_FLAGS_NONE);
     defer c.g_object_unref(@ptrCast(c.gpointer, app));

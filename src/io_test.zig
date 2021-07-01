@@ -14,7 +14,7 @@ pub fn main() !void {
     const ByteArray = ArrayList(u8);
     var x = ByteArray.init(&gpa.allocator);
     defer x.deinit();
-    var encoder = mpack.Encoder(ByteArray.Writer){ .writer = x.writer() };
+    var encoder = mpack.encoder(x.writer());
     try io_native.attach_test(&encoder);
     try child.stdin.?.writeAll(x.items);
 
