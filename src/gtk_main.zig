@@ -46,6 +46,13 @@ fn focus_leave(_: *c.GtkEventControllerFocus, data: c.gpointer) callconv(.C) voi
     c.gtk_im_context_focus_out(im_context);
 }
 
+fn on_stdout(_: ?*c.GIOChannel, cond: c.GIOCondition, data: c.gpointer) callconv(.C) c.gboolean {
+    _ = cond;
+    _ = data;
+    c.g_print("DATTA\n");
+    return 1;
+}
+
 fn init(self: *Self) !void {
     self.child = try io.spawn(&self.gpa.allocator);
     self.enc_buffer = ArrayList(u8).init(&self.gpa.allocator);
@@ -53,6 +60,9 @@ fn init(self: *Self) !void {
     try io.attach_test(&encoder);
     try self.child.stdin.?.writeAll(self.enc_buffer.items);
     try self.enc_buffer.resize(0);
+
+    var gio = c.g_io_channel_unix_new(self.child.stdout.?.handle);
+    _ = c.g_io_add_watch(gio, c.G_IO_IN, on_stdout, self);
 }
 
 fn activate(app: *c.GtkApplication, data: c.gpointer) callconv(.C) void {
