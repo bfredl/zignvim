@@ -1,6 +1,11 @@
 const std = @import("std");
 const c = @import("gtk_c.zig");
 const g = @import("gtk_lib.zig");
+const io = @import("io_native.zig");
+
+const Self = @This();
+child: *std.ChildProcess = undefined,
+gpa: std.heap.GeneralPurposeAllocator(.{}),
 
 pub fn key_pressed(_: *c.GtkEventControllerKey, keyval: c.guint, keycode: c.guint, mod: c.GdkModifierType, data: c.gpointer) callconv(.C) void {
     _ = keyval;
@@ -30,7 +35,10 @@ pub fn focus_leave(_: *c.GtkEventControllerFocus, data: c.gpointer) callconv(.C)
 }
 
 pub fn activate(app: *c.GtkApplication, user_data: c.gpointer) callconv(.C) void {
-    _ = user_data;
+    var self: *Self = @ptrCast(*Self, @alignCast(@alignOf(Self), user_data));
+    self.* = Self{ .gpa = std.heap.GeneralPurposeAllocator(.{}){} };
+    self.child = io.spawn(&self.gpa.allocator) catch @panic("heeee");
+
     var window: *c.GtkWidget = c.gtk_application_window_new(app);
     c.gtk_window_set_title(g.GTK_WINDOW(window), "Window");
     c.gtk_window_set_default_size(g.GTK_WINDOW(window), 200, 200);
@@ -63,10 +71,13 @@ pub fn activate(app: *c.GtkApplication, user_data: c.gpointer) callconv(.C) void
 pub export fn main() u8 {
     var argc = @intCast(c_int, std.os.argv.len);
     var argv = @ptrCast([*c][*c]u8, std.os.argv.ptr);
+
+    var self: Self = undefined;
+
     var app: *c.GtkApplication = c.gtk_application_new("io.github.bfredl.zignvim", c.G_APPLICATION_FLAGS_NONE);
     defer c.g_object_unref(@ptrCast(c.gpointer, app));
 
-    _ = g.g_signal_connect(app, "activate", g.G_CALLBACK(activate), c.NULL);
+    _ = g.g_signal_connect(app, "activate", g.G_CALLBACK(activate), &self);
     var status = c.g_application_run(g.g_cast(c.GApplication, c.g_application_get_type(), app), argc, argv);
     return @intCast(u8, status);
 }
