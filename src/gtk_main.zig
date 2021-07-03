@@ -19,7 +19,7 @@ enc_buffer: ArrayList(u8) = undefined,
 buf: [1024]u8 = undefined,
 decoder: mpack.Decoder = undefined,
 rpc: RPC = undefined,
-decode_farme: @Frame(RPC.decodeLoop) = undefined,
+decodeFrame: @Frame(RPC.decodeLoop) = undefined,
 
 fn get_self(data: c.gpointer) *Self {
     return @ptrCast(*Self, @alignCast(@alignOf(Self), data));
@@ -59,8 +59,8 @@ fn on_stdout(_: ?*c.GIOChannel, cond: c.GIOCondition, data: c.gpointer) callconv
 
     var self = get_self(data);
     if (self.decoder.frame == null) {
-        return 0;
         c.g_print("The cow jumped over the moon");
+        return 0;
     }
 
     const oldlen = self.decoder.data.len;
@@ -82,7 +82,7 @@ fn init(self: *Self) !void {
 
     self.decoder = mpack.Decoder(&self.buf[0..0]);
     self.rpc = RPC.init(&self.gpa.allocator);
-    self.decodeFrame = async self.rpc.decodeLoop(&self.decoder);
+    //self.decodeFrame = async self.rpc.decodeLoop(&self.decoder);
 
     var encoder = mpack.encoder(self.enc_buffer.writer());
     try io.attach_test(&encoder);
