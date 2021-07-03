@@ -152,6 +152,7 @@ fn handleGridLine(self: *Self, decoder: *mpack.Decoder, nlines: u32) RPCError!vo
                 self.hl_id = hl_id;
                 const slice = if (hl_id > 0) theslice: {
                     const islice = self.attr_off.items[hl_id];
+                    dbg("without chemicals {} he points {} {}", .{ hl_id, islice.start, islice.end });
                     break :theslice self.attr_arena.items[islice.start..islice.end];
                 } else "\x1b[0m";
                 self.writer.writeAll(slice) catch return RPCError.IOError;
@@ -186,15 +187,15 @@ fn handleHlAttrDef(self: *Self, decoder: *mpack.Decoder, nattrs: u32) RPCError!v
         const nsize = try decoder.expectArray();
         const id = try decoder.expectUInt();
         const rgb_attrs = try decoder.expectMap();
-        //dbg("ATTEN: {} {}", .{ id, rgb_attrs });
+        dbg("ATTEN: {} {}", .{ id, rgb_attrs });
+        var fg: ?u32 = null;
+        var bg: ?u32 = null;
+        var bold = false;
         var j: u32 = 0;
         while (j < rgb_attrs) : (j += 1) {
             const name = try decoder.expectString();
             const Keys = enum { foreground, background, bold, Unknown };
             const key = stringToEnum(Keys, name) orelse .Unknown;
-            var fg: ?u32 = null;
-            var bg: ?u32 = null;
-            var bold = false;
             switch (key) {
                 .foreground => {
                     const num = try decoder.expectUInt();
@@ -216,23 +217,23 @@ fn handleHlAttrDef(self: *Self, decoder: *mpack.Decoder, nattrs: u32) RPCError!v
                     try decoder.skipAhead(1);
                 },
             }
-            const pos = @intCast(u32, self.attr_arena.items.len);
-            const w = self.attr_arena.writer();
-            try w.writeAll("\x1b[0m");
-            if (fg) |the_fg| {
-                const rgb = @bitCast(RGB, the_fg);
-                try doColors(w, true, rgb);
-            }
-            if (bg) |the_bg| {
-                const rgb = @bitCast(RGB, the_bg);
-                try doColors(w, false, rgb);
-            }
-            if (bold) {
-                try w.writeAll("\x1b[1m");
-            }
-            const endpos = @intCast(u32, self.attr_arena.items.len);
-            try putAt(&self.attr_off, id, .{ .start = pos, .end = endpos });
         }
+        const pos = @intCast(u32, self.attr_arena.items.len);
+        const w = self.attr_arena.writer();
+        try w.writeAll("\x1b[0m");
+        if (fg) |the_fg| {
+            const rgb = @bitCast(RGB, the_fg);
+            try doColors(w, true, rgb);
+        }
+        if (bg) |the_bg| {
+            const rgb = @bitCast(RGB, the_bg);
+            try doColors(w, false, rgb);
+        }
+        if (bold) {
+            try w.writeAll("\x1b[1m");
+        }
+        const endpos = @intCast(u32, self.attr_arena.items.len);
+        try putAt(&self.attr_off, id, .{ .start = pos, .end = endpos });
         dbg("\n", .{});
 
         try decoder.skipAhead(nsize - 2);

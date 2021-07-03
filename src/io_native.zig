@@ -38,15 +38,13 @@ pub fn attach_test(encoder: anytype) !void {
     }
 }
 
-pub fn unsafe_input(encoder: anytype, input: []u8) !void {
+pub fn unsafe_input(encoder: anytype, input: []const u8) !void {
     try encoder.putArrayHead(3);
     try encoder.putInt(2); // request
     try encoder.putStr("nvim_input");
     try encoder.putArrayHead(1);
     try encoder.putStr(input);
 }
-
-decodeFrame: @Frame(RPC.decodeLoop) = undefined,
 
 pub fn dummy_loop(stdout: anytype, allocator: *mem.Allocator) !void {
     var buf: [1024]u8 = undefined;

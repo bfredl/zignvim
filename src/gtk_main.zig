@@ -8,6 +8,8 @@ const mem = std.mem;
 const ArrayList = std.ArrayList;
 const mpack = @import("./mpack.zig");
 
+const dbg = std.debug.print;
+
 const Self = @This();
 
 const io_mode = std.io.Mode.evented;
@@ -34,14 +36,21 @@ fn key_pressed(_: *c.GtkEventControllerKey, keyval: c.guint, keycode: c.guint, m
     _ = keycode;
     _ = mod;
     _ = data;
-    c.g_print("Hellooooo!\n");
+    dbg("Hellooooo!\n", .{});
+}
+
+fn doCommit(self: *Self, str: []const u8) !void {
+    dbg("aha: {s}\n", .{str});
+    var encoder = mpack.encoder(self.enc_buffer.writer());
+    try io.unsafe_input(encoder, str);
+    try self.child.stdin.?.writeAll(self.enc_buffer.items);
+    try self.enc_buffer.resize(0);
 }
 
 fn commit(_: *c.GtkIMContext, str: [*:0]const u8, data: c.gpointer) callconv(.C) void {
-    _ = data;
-    c.g_print("aha: ");
-    c.g_print(str);
-    c.g_print("\n");
+    var self = get_self(data);
+
+    self.doCommit(str[0..mem.len(str)]) catch @panic("It was a dream!");
 }
 
 fn focus_enter(_: *c.GtkEventControllerFocus, data: c.gpointer) callconv(.C) void {
@@ -58,8 +67,7 @@ fn focus_leave(_: *c.GtkEventControllerFocus, data: c.gpointer) callconv(.C) voi
 
 fn on_stdout(_: ?*c.GIOChannel, cond: c.GIOCondition, data: c.gpointer) callconv(.C) c.gboolean {
     _ = cond;
-    _ = data;
-    c.g_print("DATTA\n");
+    dbg("DATTA\n", .{});
 
     var self = get_self(data);
     if (self.decoder.frame == null) {
@@ -120,7 +128,7 @@ fn activate(app: *c.GtkApplication, data: c.gpointer) callconv(.C) void {
     //c.gtk_im_context_set_client_window(im_context, da);
     c.gtk_im_context_set_use_preedit(im_context, c.FALSE);
     _ = g.g_signal_connect(key_ev, "key-pressed", g.G_CALLBACK(key_pressed), null);
-    _ = g.g_signal_connect(im_context, "commit", g.G_CALLBACK(commit), null);
+    _ = g.g_signal_connect(im_context, "commit", g.G_CALLBACK(commit), self);
 
     var focus_ev = c.gtk_event_controller_focus_new();
     c.gtk_widget_add_controller(window, focus_ev);
