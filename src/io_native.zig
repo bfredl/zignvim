@@ -46,12 +46,14 @@ pub fn unsafe_input(encoder: anytype, input: []u8) !void {
     try encoder.putStr(input);
 }
 
+decodeFrame: @Frame(RPC.decodeLoop) = undefined,
+
 pub fn dummy_loop(stdout: anytype, allocator: *mem.Allocator) !void {
     var buf: [1024]u8 = undefined;
     var lenny = try stdout.read(&buf);
     var decoder = mpack.Decoder{ .data = buf[0..lenny] };
     var rpc = RPC.init(allocator);
-    var decodeFrame = async rpc.decodeLoop(&decoder);
+    var decodeFrame: @Frame(RPC.decodeLoop) = async rpc.decodeLoop(&decoder);
 
     // @compileLog(@sizeOf(@Frame(decodeLoop)));
     // 11920 with fully async readHead()

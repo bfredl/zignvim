@@ -3,6 +3,7 @@ const c = @import("gtk_c.zig");
 const g = @import("gtk_lib.zig");
 const io = @import("io_native.zig");
 const RPC = @import("RPC.zig");
+const mem = std.mem;
 
 const ArrayList = std.ArrayList;
 const mpack = @import("./mpack.zig");
@@ -19,7 +20,10 @@ enc_buffer: ArrayList(u8) = undefined,
 buf: [1024]u8 = undefined,
 decoder: mpack.Decoder = undefined,
 rpc: RPC = undefined,
-decodeFrame: @Frame(RPC.decodeLoop) = undefined,
+
+// TODO: this fails to build???
+// decodeFrame: @Frame(RPC.decodeLoop) = undefined,
+df: anyframe->RPC.RPCError!void = undefined,
 
 fn get_self(data: c.gpointer) *Self {
     return @ptrCast(*Self, @alignCast(@alignOf(Self), data));
@@ -64,15 +68,15 @@ fn on_stdout(_: ?*c.GIOChannel, cond: c.GIOCondition, data: c.gpointer) callconv
     }
 
     const oldlen = self.decoder.data.len;
-    if (oldlen > 0 and self.decoder.data.ptr != &buf) {
+    if (oldlen > 0 and self.decoder.data.ptr != &self.buf) {
         // TODO: avoid move if remaining space is plenty (like > 900)
-        mem.copy(u8, &buf, self.decoder.data);
+        mem.copy(u8, &self.buf, self.decoder.data);
     }
     var stdout = &self.child.stdout.?;
-    var lenny = try stdout.read(buf[oldlen..]);
-    self.decoder.data = buf[0 .. oldlen + lenny];
+    var lenny = stdout.read(self.buf[oldlen..]) catch @panic("call for help");
+    self.decoder.data = self.buf[0 .. oldlen + lenny];
 
-    resume decoder.frame.?;
+    resume self.decoder.frame.?;
     return 1;
 }
 
@@ -80,9 +84,13 @@ fn init(self: *Self) !void {
     self.child = try io.spawn(&self.gpa.allocator);
     self.enc_buffer = ArrayList(u8).init(&self.gpa.allocator);
 
-    self.decoder = mpack.Decoder(&self.buf[0..0]);
+    self.decoder = mpack.Decoder{ .data = self.buf[0..0] };
     self.rpc = RPC.init(&self.gpa.allocator);
-    //self.decodeFrame = async self.rpc.decodeLoop(&self.decoder);
+
+    // TODO: this should not be allocated, but @Frame(RPC.decodeLoop) fails at module scope..
+    var decodeFrame = try self.gpa.allocator.create(@Frame(RPC.decodeLoop));
+    decodeFrame.* = async self.rpc.decodeLoop(&self.decoder);
+    self.df = decodeFrame;
 
     var encoder = mpack.encoder(self.enc_buffer.writer());
     try io.attach_test(&encoder);
