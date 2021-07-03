@@ -2,6 +2,7 @@ const std = @import("std");
 const c = @import("gtk_c.zig");
 const g = @import("gtk_lib.zig");
 const io = @import("io_native.zig");
+const RPC = @import("RPC.zig");
 
 const ArrayList = std.ArrayList;
 const mpack = @import("./mpack.zig");
@@ -14,6 +15,11 @@ gpa: std.heap.GeneralPurposeAllocator(.{}),
 
 child: *std.ChildProcess = undefined,
 enc_buffer: ArrayList(u8) = undefined,
+
+buf: [1024]u8 = undefined,
+decoder: mpack.Decoder = undefined,
+rpc: RPC = undefined,
+decode_farme: @Frame(RPC.decodeLoop) = undefined,
 
 fn get_self(data: c.gpointer) *Self {
     return @ptrCast(*Self, @alignCast(@alignOf(Self), data));
@@ -50,12 +56,34 @@ fn on_stdout(_: ?*c.GIOChannel, cond: c.GIOCondition, data: c.gpointer) callconv
     _ = cond;
     _ = data;
     c.g_print("DATTA\n");
+
+    var self = get_self(data);
+    if (self.decoder.frame == null) {
+        return 0;
+        c.g_print("The cow jumped over the moon");
+    }
+
+    const oldlen = self.decoder.data.len;
+    if (oldlen > 0 and self.decoder.data.ptr != &buf) {
+        // TODO: avoid move if remaining space is plenty (like > 900)
+        mem.copy(u8, &buf, self.decoder.data);
+    }
+    var stdout = &self.child.stdout.?;
+    var lenny = try stdout.read(buf[oldlen..]);
+    self.decoder.data = buf[0 .. oldlen + lenny];
+
+    resume decoder.frame.?;
     return 1;
 }
 
 fn init(self: *Self) !void {
     self.child = try io.spawn(&self.gpa.allocator);
     self.enc_buffer = ArrayList(u8).init(&self.gpa.allocator);
+
+    self.decoder = mpack.Decoder(&self.buf[0..0]);
+    self.rpc = RPC.init(&self.gpa.allocator);
+    self.decodeFrame = async self.rpc.decodeLoop(&self.decoder);
+
     var encoder = mpack.encoder(self.enc_buffer.writer());
     try io.attach_test(&encoder);
     try self.child.stdin.?.writeAll(self.enc_buffer.items);
@@ -102,6 +130,7 @@ pub fn main() u8 {
     var argc = @intCast(c_int, std.os.argv.len);
     var argv = @ptrCast([*c][*c]u8, std.os.argv.ptr);
 
+    // TODO: can we refer directly to .gpa in further fields?
     var self = Self{ .gpa = std.heap.GeneralPurposeAllocator(.{}){} };
 
     var app: *c.GtkApplication = c.gtk_application_new("io.github.bfredl.zignvim", c.G_APPLICATION_FLAGS_NONE);
