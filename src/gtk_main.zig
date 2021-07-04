@@ -125,9 +125,9 @@ fn activate(app: *c.GtkApplication, data: c.gpointer) callconv(.C) void {
     c.gtk_widget_add_controller(window, key_ev);
     var im_context = c.gtk_im_multicontext_new();
     c.gtk_event_controller_key_set_im_context(g.g_cast(c.GtkEventControllerKey, c.gtk_event_controller_key_get_type(), key_ev), im_context);
-    //c.gtk_im_context_set_client_window(im_context, da);
+    c.gtk_im_context_set_client_widget(im_context, da);
     c.gtk_im_context_set_use_preedit(im_context, c.FALSE);
-    _ = g.g_signal_connect(key_ev, "key-pressed", g.G_CALLBACK(key_pressed), null);
+    _ = g.g_signal_connect(key_ev, "key-pressed", g.G_CALLBACK(key_pressed), self);
     _ = g.g_signal_connect(im_context, "commit", g.G_CALLBACK(commit), self);
 
     var focus_ev = c.gtk_event_controller_focus_new();

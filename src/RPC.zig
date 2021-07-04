@@ -152,7 +152,7 @@ fn handleGridLine(self: *Self, decoder: *mpack.Decoder, nlines: u32) RPCError!vo
                 self.hl_id = hl_id;
                 const slice = if (hl_id > 0) theslice: {
                     const islice = self.attr_off.items[hl_id];
-                    dbg("without chemicals {} he points {} {}", .{ hl_id, islice.start, islice.end });
+                    //dbg("without chemicals {} he points {} {}", .{ hl_id, islice.start, islice.end });
                     break :theslice self.attr_arena.items[islice.start..islice.end];
                 } else "\x1b[0m";
                 self.writer.writeAll(slice) catch return RPCError.IOError;
