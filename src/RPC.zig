@@ -80,6 +80,7 @@ const RedrawEvents = enum {
     hl_attr_define,
     hl_group_set,
     grid_line,
+    grid_cursor_goto,
     flush,
     Unknown,
 };
@@ -107,6 +108,10 @@ fn handleRedraw(self: *Self, decoder: *mpack.Decoder) RPCError!void {
             .hl_attr_define => {
                 try self.handleHlAttrDef(decoder, iargs - 1);
             },
+            .grid_cursor_goto => {
+                try decoder.skipAhead(iargs - 2);
+                try self.handleCursorGoto(decoder);
+            },
             .hl_group_set => {
                 try decoder.skipAhead(iargs - 1);
             },
@@ -131,7 +136,7 @@ fn handleGridLine(self: *Self, decoder: *mpack.Decoder, nlines: u32) RPCError!vo
         const col = try decoder.expectUInt();
         const ncells = try decoder.expectArray();
         dbg("LINE: {} {} {} {}: [", .{ grid, row, col, ncells });
-        self.writer.print("\x1b[{};{}H", .{ row, col }) catch return RPCError.IOError;
+        self.writer.print("\x1b[{};{}H", .{ row + 1, col + 1 }) catch return RPCError.IOError;
         var j: u32 = 0;
         while (j < ncells) : (j += 1) {
             const nsize = try decoder.expectArray();
@@ -241,6 +246,16 @@ fn handleHlAttrDef(self: *Self, decoder: *mpack.Decoder, nattrs: u32) RPCError!v
     }
 }
 
+fn handleCursorGoto(self: *Self, decoder: *mpack.Decoder) RPCError!void {
+    const nsize = try decoder.expectArray();
+    const grid = try decoder.expectUInt();
+    _ = grid;
+    const row = try decoder.expectUInt();
+    const col = try decoder.expectUInt();
+    try decoder.skipAhead(nsize - 3);
+
+    self.writer.print("\x1b[{};{}H", .{ row + 1, col + 1 }) catch return RPCError.IOError;
+}
 fn putAt(array_list: anytype, index: usize, item: anytype) !void {
     if (array_list.items.len < index + 1) {
         try array_list.resize(index + 1);

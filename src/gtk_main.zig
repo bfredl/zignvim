@@ -32,11 +32,16 @@ fn get_self(data: c.gpointer) *Self {
 }
 
 fn key_pressed(_: *c.GtkEventControllerKey, keyval: c.guint, keycode: c.guint, mod: c.GdkModifierType, data: c.gpointer) callconv(.C) void {
-    _ = keyval;
     _ = keycode;
-    _ = mod;
-    _ = data;
-    dbg("Hellooooo!\n", .{});
+    var self = get_self(data);
+    var codepoint = c.gdk_keyval_to_unicode(keyval);
+    dbg("Hellooooo! {} {} {}\n", .{ keyval, mod, codepoint });
+    if (codepoint == 0 or codepoint > std.math.maxInt(u21)) {
+        return;
+    }
+    var x: [4]u8 = undefined;
+    const len = std.unicode.utf8Encode(@intCast(u21, codepoint), x[0..x.len]) catch @panic("aaaah");
+    self.doCommit(x[0..len]) catch @panic("We live inside of a dream!");
 }
 
 fn doCommit(self: *Self, str: []const u8) !void {
@@ -71,7 +76,7 @@ fn on_stdout(_: ?*c.GIOChannel, cond: c.GIOCondition, data: c.gpointer) callconv
 
     var self = get_self(data);
     if (self.decoder.frame == null) {
-        c.g_print("The cow jumped over the moon");
+        c.g_print("The cow jumped over the moon\n");
         return 0;
     }
 
@@ -124,7 +129,8 @@ fn activate(app: *c.GtkApplication, data: c.gpointer) callconv(.C) void {
     var key_ev = c.gtk_event_controller_key_new();
     c.gtk_widget_add_controller(window, key_ev);
     var im_context = c.gtk_im_multicontext_new();
-    c.gtk_event_controller_key_set_im_context(g.g_cast(c.GtkEventControllerKey, c.gtk_event_controller_key_get_type(), key_ev), im_context);
+    // ibus on gtk4 has bug :(
+    // c.gtk_event_controller_key_set_im_context(g.g_cast(c.GtkEventControllerKey, c.gtk_event_controller_key_get_type(), key_ev), im_context);
     c.gtk_im_context_set_client_widget(im_context, da);
     c.gtk_im_context_set_use_preedit(im_context, c.FALSE);
     _ = g.g_signal_connect(key_ev, "key-pressed", g.G_CALLBACK(key_pressed), self);
