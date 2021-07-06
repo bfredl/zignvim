@@ -12,16 +12,30 @@ attr_arena: ArrayList(u8),
 attr_off: ArrayList(AttrOffset),
 writer: @TypeOf(std.io.getStdOut().writer()),
 
-hl_id: u32,
+grid: [1]Grid,
+
+attr_id: u16,
 
 const Self = @This();
+
+const Grid = struct {
+    rows: u16,
+    cols: u16,
+    cell: ArrayList(Cell),
+};
+
+const Cell = struct {
+    char: [8]u8,
+    attr_id: u16,
+};
 
 pub fn init(allocator: *mem.Allocator) Self {
     return .{
         .attr_arena = ArrayList(u8).init(allocator),
         .attr_off = ArrayList(AttrOffset).init(allocator),
-        .hl_id = 0,
+        .attr_id = 0,
         .writer = std.io.getStdOut().writer(),
+        .grid = .{.{ .rows = 0, .cols = 0, .cell = ArrayList(Cell).init(allocator) }},
     };
 }
 
@@ -79,6 +93,7 @@ fn decodeEvent(self: *Self, decoder: *mpack.Decoder, arraySize: u32) RPCError!vo
 const RedrawEvents = enum {
     hl_attr_define,
     hl_group_set,
+    grid_resize,
     grid_line,
     grid_cursor_goto,
     flush,
@@ -94,7 +109,13 @@ fn handleRedraw(self: *Self, decoder: *mpack.Decoder) RPCError!void {
         const iargs = try decoder.expectArray();
         const iname = try decoder.expectString();
         const event = stringToEnum(RedrawEvents, iname) orelse .Unknown;
+        var iiarg: u32 = 1;
         switch (event) {
+            .grid_resize => {
+                while (iiarg < iargs) : (iiarg += 1) {
+                    try self.handleGridResize(decoder);
+                }
+            },
             .grid_line => try self.handleGridLine(decoder, iargs - 1),
             .flush => {
                 //if (iargs != 2 or try decoder.expectArray() > 0) {
@@ -125,46 +146,71 @@ fn handleRedraw(self: *Self, decoder: *mpack.Decoder) RPCError!void {
     dbg("==DUN REDRAW\n\n", .{});
 }
 
+fn handleGridResize(self: *Self, decoder: *mpack.Decoder) RPCError!void {
+    const saved = try decoder.push();
+    const iarg = try decoder.expectArray();
+    const grid_id = try decoder.expectUInt();
+    if (grid_id != 1) {
+        @panic("get out!");
+    }
+
+    const grid = &self.grid[grid_id - 1];
+    grid.rows = @intCast(u16, try decoder.expectUInt());
+    grid.cols = @intCast(u16, try decoder.expectUInt());
+
+    try grid.cell.resize(grid.rows * grid.cols);
+
+    try decoder.skipAhead(iarg - 3);
+    try decoder.pop(saved);
+}
+
 fn handleGridLine(self: *Self, decoder: *mpack.Decoder, nlines: u32) RPCError!void {
     dbg("==LINES {}\n", .{nlines});
     var i: u32 = 0;
     while (i < nlines) : (i += 1) {
         const saved = try decoder.push();
         const iytem = try decoder.expectArray();
-        const grid = try decoder.expectUInt();
+        const grid_id = try decoder.expectUInt();
+        const grid = &self.grid[grid_id - 1];
         const row = try decoder.expectUInt();
         const col = try decoder.expectUInt();
         const ncells = try decoder.expectArray();
-        dbg("LINE: {} {} {} {}: [", .{ grid, row, col, ncells });
-        self.writer.print("\x1b[{};{}H", .{ row + 1, col + 1 }) catch return RPCError.IOError;
+        var pos = row * grid.cols + col;
+        dbg("LINE: {} {} {} {}: [", .{ grid_id, row, col, ncells });
+        //self.writer.print("\x1b[{};{}H", .{ row + 1, col + 1 }) catch return RPCError.IOError;
         var j: u32 = 0;
         while (j < ncells) : (j += 1) {
             const nsize = try decoder.expectArray();
             const str = try decoder.expectString();
             var used: u8 = 1;
             var repeat: u64 = 1;
-            var hl_id: u32 = self.hl_id;
+            var attr_id: u16 = self.attr_id;
+
+            var char: [8]u8 = undefined;
+            mem.copy(u8, &char, str);
 
             if (nsize >= 2) {
-                hl_id = @intCast(u32, try decoder.expectUInt());
+                attr_id = @intCast(u16, try decoder.expectUInt());
                 used = 2;
                 if (nsize >= 3) {
                     repeat = try decoder.expectUInt();
                     used = 3;
                 }
             }
-            if (hl_id != self.hl_id) {
-                self.hl_id = hl_id;
-                const slice = if (hl_id > 0) theslice: {
-                    const islice = self.attr_off.items[hl_id];
-                    //dbg("without chemicals {} he points {} {}", .{ hl_id, islice.start, islice.end });
+            if (attr_id != self.attr_id) {
+                self.attr_id = attr_id;
+                const slice = if (attr_id > 0) theslice: {
+                    const islice = self.attr_off.items[attr_id];
+                    //dbg("without chemicals {} he points {} {}", .{ attr_id, islice.start, islice.end });
                     break :theslice self.attr_arena.items[islice.start..islice.end];
                 } else "\x1b[0m";
-                self.writer.writeAll(slice) catch return RPCError.IOError;
+                _ = slice;
+                // self.writer.writeAll(slice) catch return RPCError.IOError;
             }
             while (repeat > 0) : (repeat -= 1) {
+                grid.cell.items[pos] = .{ .char = char, .attr_id = attr_id };
                 dbg("{s}", .{str});
-                self.writer.writeAll(str) catch return RPCError.IOError;
+                // self.writer.writeAll(str) catch return RPCError.IOError;
             }
             try decoder.skipAhead(nsize - used);
         }
