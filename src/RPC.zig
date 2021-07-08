@@ -12,9 +12,11 @@ attr_arena: ArrayList(u8),
 attr_off: ArrayList(AttrOffset),
 writer: @TypeOf(std.io.getStdOut().writer()),
 
+cursor: struct { grid: u32, row: u16, col: u16 } = undefined,
+
 grid: [1]Grid,
 
-attr_id: u16,
+attr_id: u16 = 0,
 
 const Self = @This();
 
@@ -35,7 +37,6 @@ pub fn init(allocator: *mem.Allocator) Self {
     return .{
         .attr_arena = ArrayList(u8).init(allocator),
         .attr_off = ArrayList(AttrOffset).init(allocator),
-        .attr_id = 0,
         .writer = std.io.getStdOut().writer(),
         .grid = .{.{ .rows = 0, .cols = 0, .cell = ArrayList(Cell).init(allocator) }},
     };
@@ -133,6 +134,8 @@ fn handleRedraw(self: *Self, decoder: *mpack.Decoder) RPCError!void {
 
                 dbg("==FLUSHED\n", .{});
                 try self.dumpGrid();
+                const c = self.cursor;
+                self.writer.print("\x1b[{};{}H", .{ c.row + 1, c.col + 1 }) catch return RPCError.IOError;
                 //std.time.sleep(1000 * 1000000);
             },
             .hl_attr_define => {
@@ -173,18 +176,18 @@ fn handleGridResize(self: *Self, decoder: *mpack.Decoder) RPCError!void {
     try decoder.pop(saved);
 }
 
-
 fn handleGridClear(self: *Self, decoder: *mpack.Decoder) RPCError!void {
     const saved = try decoder.push();
     const iarg = try decoder.expectArray();
     const grid_id = try decoder.expectUInt();
+    const grid = &self.grid[grid_id - 1];
 
-    var char : [charsize]u8 = undefined;
+    var char: [charsize]u8 = undefined;
     //char[0..2] = .{ ' ', 0 };
     char[0] = ' ';
     char[1] = 0;
 
-    const cell: Cell = .{ .char = char, .attr_id = 0};
+    mem.set(Cell, grid.cell.items, .{ .char = char, .attr_id = 0 });
 
     try decoder.skipAhead(iarg - 1);
     try decoder.pop(saved);
@@ -238,6 +241,7 @@ fn handleGridLine(self: *Self, decoder: *mpack.Decoder, nlines: u32) RPCError!vo
             }
             while (repeat > 0) : (repeat -= 1) {
                 grid.cell.items[pos] = .{ .char = char, .attr_id = attr_id };
+                pos = pos + 1;
                 //dbg("{s}", .{str});
                 // self.writer.writeAll(str) catch return RPCError.IOError;
             }
@@ -263,6 +267,7 @@ fn dumpGrid(self: *Self) RPCError!void {
             var len = mem.indexOfScalar(u8, &c.char, 0) orelse charsize;
             self.writer.writeAll(c.char[0..len]) catch return RPCError.IOError;
         }
+        self.writer.writeAll("\r\n") catch return RPCError.IOError;
     }
 }
 
@@ -338,13 +343,11 @@ fn handleHlAttrDef(self: *Self, decoder: *mpack.Decoder, nattrs: u32) RPCError!v
 
 fn handleCursorGoto(self: *Self, decoder: *mpack.Decoder) RPCError!void {
     const nsize = try decoder.expectArray();
-    const grid = try decoder.expectUInt();
-    _ = grid;
-    const row = try decoder.expectUInt();
-    const col = try decoder.expectUInt();
+    const grid = @intCast(u32, try decoder.expectUInt());
+    const row = @intCast(u16, try decoder.expectUInt());
+    const col = @intCast(u16, try decoder.expectUInt());
     try decoder.skipAhead(nsize - 3);
-
-    self.writer.print("\x1b[{};{}H", .{ row + 1, col + 1 }) catch return RPCError.IOError;
+    self.cursor = .{ .grid = grid, .row = row, .col = col };
 }
 fn putAt(array_list: anytype, index: usize, item: anytype) !void {
     if (array_list.items.len < index + 1) {
