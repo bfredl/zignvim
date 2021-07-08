@@ -24,8 +24,10 @@ const Grid = struct {
     cell: ArrayList(Cell),
 };
 
+const charsize = 8;
+
 const Cell = struct {
-    char: [8]u8,
+    char: [charsize]u8,
     attr_id: u16,
 };
 
@@ -94,6 +96,7 @@ const RedrawEvents = enum {
     hl_attr_define,
     hl_group_set,
     grid_resize,
+    grid_clear,
     grid_line,
     grid_cursor_goto,
     flush,
@@ -116,6 +119,11 @@ fn handleRedraw(self: *Self, decoder: *mpack.Decoder) RPCError!void {
                     try self.handleGridResize(decoder);
                 }
             },
+            .grid_clear => {
+                while (iiarg < iargs) : (iiarg += 1) {
+                    try self.handleGridClear(decoder);
+                }
+            },
             .grid_line => try self.handleGridLine(decoder, iargs - 1),
             .flush => {
                 //if (iargs != 2 or try decoder.expectArray() > 0) {
@@ -124,6 +132,7 @@ fn handleRedraw(self: *Self, decoder: *mpack.Decoder) RPCError!void {
                 try decoder.skipAhead(iargs - 1);
 
                 dbg("==FLUSHED\n", .{});
+                try self.dumpGrid();
                 //std.time.sleep(1000 * 1000000);
             },
             .hl_attr_define => {
@@ -164,6 +173,23 @@ fn handleGridResize(self: *Self, decoder: *mpack.Decoder) RPCError!void {
     try decoder.pop(saved);
 }
 
+
+fn handleGridClear(self: *Self, decoder: *mpack.Decoder) RPCError!void {
+    const saved = try decoder.push();
+    const iarg = try decoder.expectArray();
+    const grid_id = try decoder.expectUInt();
+
+    var char : [charsize]u8 = undefined;
+    //char[0..2] = .{ ' ', 0 };
+    char[0] = ' ';
+    char[1] = 0;
+
+    const cell: Cell = .{ .char = char, .attr_id = 0};
+
+    try decoder.skipAhead(iarg - 1);
+    try decoder.pop(saved);
+}
+
 fn handleGridLine(self: *Self, decoder: *mpack.Decoder, nlines: u32) RPCError!void {
     dbg("==LINES {}\n", .{nlines});
     var i: u32 = 0;
@@ -176,7 +202,7 @@ fn handleGridLine(self: *Self, decoder: *mpack.Decoder, nlines: u32) RPCError!vo
         const col = try decoder.expectUInt();
         const ncells = try decoder.expectArray();
         var pos = row * grid.cols + col;
-        dbg("LINE: {} {} {} {}: [", .{ grid_id, row, col, ncells });
+        //dbg("LINE: {} {} {} {}: [", .{ grid_id, row, col, ncells });
         //self.writer.print("\x1b[{};{}H", .{ row + 1, col + 1 }) catch return RPCError.IOError;
         var j: u32 = 0;
         while (j < ncells) : (j += 1) {
@@ -186,8 +212,11 @@ fn handleGridLine(self: *Self, decoder: *mpack.Decoder, nlines: u32) RPCError!vo
             var repeat: u64 = 1;
             var attr_id: u16 = self.attr_id;
 
-            var char: [8]u8 = undefined;
+            var char: [charsize]u8 = undefined;
             mem.copy(u8, &char, str);
+            if (str.len < 8) {
+                char[str.len] = 0;
+            }
 
             if (nsize >= 2) {
                 attr_id = @intCast(u16, try decoder.expectUInt());
@@ -209,16 +238,31 @@ fn handleGridLine(self: *Self, decoder: *mpack.Decoder, nlines: u32) RPCError!vo
             }
             while (repeat > 0) : (repeat -= 1) {
                 grid.cell.items[pos] = .{ .char = char, .attr_id = attr_id };
-                dbg("{s}", .{str});
+                //dbg("{s}", .{str});
                 // self.writer.writeAll(str) catch return RPCError.IOError;
             }
             try decoder.skipAhead(nsize - used);
         }
-        dbg("]\n", .{});
+        //dbg("]\n", .{});
 
         try decoder.skipAhead(iytem - 4);
 
         try decoder.pop(saved);
+    }
+}
+
+fn dumpGrid(self: *Self) RPCError!void {
+    self.writer.print("\x1b[H", .{}) catch return RPCError.IOError;
+    const grid = &self.grid[0];
+    var row: u16 = 0;
+    while (row < grid.rows) : (row += 1) {
+        const o = row * grid.cols;
+        var col: u16 = 0;
+        while (col < grid.cols) : (col += 1) {
+            const c = grid.cell.items[o + col];
+            var len = mem.indexOfScalar(u8, &c.char, 0) orelse charsize;
+            self.writer.writeAll(c.char[0..len]) catch return RPCError.IOError;
+        }
     }
 }
 
@@ -238,7 +282,7 @@ fn handleHlAttrDef(self: *Self, decoder: *mpack.Decoder, nattrs: u32) RPCError!v
         const nsize = try decoder.expectArray();
         const id = try decoder.expectUInt();
         const rgb_attrs = try decoder.expectMap();
-        dbg("ATTEN: {} {}", .{ id, rgb_attrs });
+        //dbg("ATTEN: {} {}", .{ id, rgb_attrs });
         var fg: ?u32 = null;
         var bg: ?u32 = null;
         var bold = false;
@@ -250,21 +294,21 @@ fn handleHlAttrDef(self: *Self, decoder: *mpack.Decoder, nattrs: u32) RPCError!v
             switch (key) {
                 .foreground => {
                     const num = try decoder.expectUInt();
-                    dbg(" fg={}", .{num});
+                    //dbg(" fg={}", .{num});
                     fg = @intCast(u32, num);
                 },
                 .background => {
                     const num = try decoder.expectUInt();
-                    dbg(" bg={}", .{num});
+                    //dbg(" bg={}", .{num});
                     bg = @intCast(u32, num);
                 },
                 .bold => {
                     _ = try decoder.readHead();
-                    dbg(" BOLDEN", .{});
+                    //dbg(" BOLDEN", .{});
                     bold = true;
                 },
                 .Unknown => {
-                    dbg(" {s}", .{name});
+                    //dbg(" {s}", .{name});
                     try decoder.skipAhead(1);
                 },
             }
@@ -285,7 +329,7 @@ fn handleHlAttrDef(self: *Self, decoder: *mpack.Decoder, nattrs: u32) RPCError!v
         }
         const endpos = @intCast(u32, self.attr_arena.items.len);
         try putAt(&self.attr_off, id, .{ .start = pos, .end = endpos });
-        dbg("\n", .{});
+        //dbg("\n", .{});
 
         try decoder.skipAhead(nsize - 2);
         try decoder.pop(saved);
