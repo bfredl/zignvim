@@ -103,6 +103,7 @@ fn on_stdout(_: ?*c.GIOChannel, cond: c.GIOCondition, data: c.gpointer) callconv
     var self = get_self(data);
     if (self.decoder.frame == null) {
         c.g_print("The cow jumped over the moon\n");
+        nosuspend await self.df catch @panic("mooooh");
         return 0;
     }
 

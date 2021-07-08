@@ -13,6 +13,7 @@ attr_off: ArrayList(AttrOffset),
 writer: @TypeOf(std.io.getStdOut().writer()),
 
 cursor: struct { grid: u32, row: u16, col: u16 } = undefined,
+default_colors: struct { fg: u32, bg: u32, sp: u32 } = undefined,
 
 grid: [1]Grid,
 
@@ -100,6 +101,7 @@ const RedrawEvents = enum {
     grid_clear,
     grid_line,
     grid_cursor_goto,
+    default_colors_set,
     flush,
     Unknown,
 };
@@ -144,6 +146,10 @@ fn handleRedraw(self: *Self, decoder: *mpack.Decoder) RPCError!void {
             .grid_cursor_goto => {
                 try decoder.skipAhead(iargs - 2);
                 try self.handleCursorGoto(decoder);
+            },
+            .default_colors_set => {
+                try decoder.skipAhead(iargs - 2);
+                try self.handleDefaultColorsSet(decoder);
             },
             .hl_group_set => {
                 try decoder.skipAhead(iargs - 1);
@@ -361,6 +367,16 @@ fn handleCursorGoto(self: *Self, decoder: *mpack.Decoder) RPCError!void {
     try decoder.skipAhead(nsize - 3);
     self.cursor = .{ .grid = grid, .row = row, .col = col };
 }
+
+fn handleDefaultColorsSet(self: *Self, decoder: *mpack.Decoder) RPCError!void {
+    const nsize = try decoder.expectArray();
+    const fg = @intCast(u32, try decoder.expectUInt());
+    const bg = @intCast(u32, try decoder.expectUInt());
+    const sp = @intCast(u32, try decoder.expectUInt());
+    try decoder.skipAhead(nsize - 3);
+    self.default_colors = .{ .fg = fg, .bg = bg, .sp = sp };
+}
+
 fn putAt(array_list: anytype, index: usize, item: anytype) !void {
     if (array_list.items.len < index + 1) {
         try array_list.resize(index + 1);
