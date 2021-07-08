@@ -17,7 +17,8 @@ const io_mode = std.io.Mode.evented;
 gpa: std.heap.GeneralPurposeAllocator(.{}),
 
 child: *std.ChildProcess = undefined,
-enc_buffer: ArrayList(u8) = undefined,
+enc_buf: ArrayList(u8) = undefined,
+key_buf: ArrayList(u8) = undefined,
 
 buf: [1024]u8 = undefined,
 decoder: mpack.Decoder = undefined,
@@ -34,22 +35,47 @@ fn get_self(data: c.gpointer) *Self {
 fn key_pressed(_: *c.GtkEventControllerKey, keyval: c.guint, keycode: c.guint, mod: c.GdkModifierType, data: c.gpointer) callconv(.C) void {
     _ = keycode;
     var self = get_self(data);
+    self.onKeyPress(keyval, mod) catch @panic("We live inside of a dream!");
+}
+
+fn onKeyPress(self: *Self, keyval: c.guint, mod: c.guint) !void {
+    var special: ?[:0]const u8 = switch (keyval) {
+        c.GDK_KEY_Left => "Left",
+        c.GDK_KEY_Right => "Right",
+        else => null,
+    };
+    var x: [4]u8 = undefined;
+
     var codepoint = c.gdk_keyval_to_unicode(keyval);
     dbg("Hellooooo! {} {} {}\n", .{ keyval, mod, codepoint });
     if (codepoint == 0 or codepoint > std.math.maxInt(u21)) {
         return;
     }
-    var x: [4]u8 = undefined;
     const len = std.unicode.utf8Encode(@intCast(u21, codepoint), x[0..x.len]) catch @panic("aaaah");
-    self.doCommit(x[0..len]) catch @panic("We live inside of a dream!");
+    var did = false;
+    // TODO: be insane enough and just reuse enc_buf :]
+    defer self.key_buf.items.len = 0;
+    if ((mod & c.GDK_CONTROL_MASK) != 0 or special != null) {
+        try self.key_buf.appendSlice("<");
+        did = true;
+    }
+    if ((mod & c.GDK_CONTROL_MASK) != 0) {
+        try self.key_buf.appendSlice("c-");
+    }
+    try self.key_buf.appendSlice(x[0..len]);
+    if (did) {
+        try self.key_buf.appendSlice(">");
+    }
+
+    try self.doCommit(self.key_buf.items);
 }
 
 fn doCommit(self: *Self, str: []const u8) !void {
     dbg("aha: {s}\n", .{str});
-    var encoder = mpack.encoder(self.enc_buffer.writer());
+    var encoder = mpack.encoder(self.enc_buf.writer());
     try io.unsafe_input(encoder, str);
-    try self.child.stdin.?.writeAll(self.enc_buffer.items);
-    try self.enc_buffer.resize(0);
+    try self.child.stdin.?.writeAll(self.enc_buf.items);
+    try self.enc_buf.resize(0);
 }
 
 fn commit(_: *c.GtkIMContext, str: [*:0]const u8, data: c.gpointer) callconv(.C) void {
@@ -72,7 +98,7 @@ fn focus_leave(_: *c.GtkEventControllerFocus, data: c.gpointer) callconv(.C) voi
 
 fn on_stdout(_: ?*c.GIOChannel, cond: c.GIOCondition, data: c.gpointer) callconv(.C) c.gboolean {
     _ = cond;
-    dbg("DATTA\n", .{});
+    // dbg("DATTA\n", .{});
 
     var self = get_self(data);
     if (self.decoder.frame == null) {
@@ -95,7 +121,8 @@ fn on_stdout(_: ?*c.GIOChannel, cond: c.GIOCondition, data: c.gpointer) callconv
 
 fn init(self: *Self) !void {
     self.child = try io.spawn(&self.gpa.allocator);
-    self.enc_buffer = ArrayList(u8).init(&self.gpa.allocator);
+    self.enc_buf = ArrayList(u8).init(&self.gpa.allocator);
+    self.key_buf = ArrayList(u8).init(&self.gpa.allocator);
 
     self.decoder = mpack.Decoder{ .data = self.buf[0..0] };
     self.rpc = RPC.init(&self.gpa.allocator);
@@ -105,10 +132,10 @@ fn init(self: *Self) !void {
     decodeFrame.* = async self.rpc.decodeLoop(&self.decoder);
     self.df = decodeFrame;
 
-    var encoder = mpack.encoder(self.enc_buffer.writer());
+    var encoder = mpack.encoder(self.enc_buf.writer());
     try io.attach_test(&encoder);
-    try self.child.stdin.?.writeAll(self.enc_buffer.items);
-    try self.enc_buffer.resize(0);
+    try self.child.stdin.?.writeAll(self.enc_buf.items);
+    try self.enc_buf.resize(0);
 
     var gio = c.g_io_channel_unix_new(self.child.stdout.?.handle);
     _ = c.g_io_add_watch(gio, c.G_IO_IN, on_stdout, self);

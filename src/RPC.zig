@@ -194,7 +194,7 @@ fn handleGridClear(self: *Self, decoder: *mpack.Decoder) RPCError!void {
 }
 
 fn handleGridLine(self: *Self, decoder: *mpack.Decoder, nlines: u32) RPCError!void {
-    dbg("==LINES {}\n", .{nlines});
+    // dbg("==LINES {}\n", .{nlines});
     var i: u32 = 0;
     while (i < nlines) : (i += 1) {
         const saved = try decoder.push();
@@ -261,6 +261,9 @@ fn dumpGrid(self: *Self) RPCError!void {
     var row: u16 = 0;
     var attr_id: u16 = 0;
     while (row < grid.rows) : (row += 1) {
+        if (row > 1) {
+            self.writer.writeAll("\r\n") catch return RPCError.IOError;
+        }
         const o = row * grid.cols;
         var col: u16 = 0;
         while (col < grid.cols) : (col += 1) {
@@ -277,7 +280,6 @@ fn dumpGrid(self: *Self) RPCError!void {
             }
             self.writer.writeAll(c.char[0..len]) catch return RPCError.IOError;
         }
-        self.writer.writeAll("\r\n") catch return RPCError.IOError;
     }
 }
 
@@ -290,7 +292,7 @@ fn doColors(w: anytype, fg: bool, rgb: RGB) RPCError!void {
 }
 
 fn handleHlAttrDef(self: *Self, decoder: *mpack.Decoder, nattrs: u32) RPCError!void {
-    dbg("==ATTRS {}\n", .{nattrs});
+    // dbg("==ATTRS {}\n", .{nattrs});
     var i: u32 = 0;
     while (i < nattrs) : (i += 1) {
         const saved = try decoder.push();
