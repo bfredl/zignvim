@@ -167,8 +167,8 @@ fn handleGridResize(self: *Self, decoder: *mpack.Decoder) RPCError!void {
     }
 
     const grid = &self.grid[grid_id - 1];
-    grid.rows = @intCast(u16, try decoder.expectUInt());
     grid.cols = @intCast(u16, try decoder.expectUInt());
+    grid.rows = @intCast(u16, try decoder.expectUInt());
 
     try grid.cell.resize(grid.rows * grid.cols);
 
@@ -259,12 +259,22 @@ fn dumpGrid(self: *Self) RPCError!void {
     self.writer.print("\x1b[H", .{}) catch return RPCError.IOError;
     const grid = &self.grid[0];
     var row: u16 = 0;
+    var attr_id: u16 = 0;
     while (row < grid.rows) : (row += 1) {
         const o = row * grid.cols;
         var col: u16 = 0;
         while (col < grid.cols) : (col += 1) {
             const c = grid.cell.items[o + col];
             var len = mem.indexOfScalar(u8, &c.char, 0) orelse charsize;
+            if (c.attr_id != attr_id) {
+                attr_id = c.attr_id;
+                const slice = if (attr_id > 0) theslice: {
+                    const islice = self.attr_off.items[attr_id];
+                    //dbg("without chemicals {} he points {} {}", .{ attr_id, islice.start, islice.end });
+                    break :theslice self.attr_arena.items[islice.start..islice.end];
+                } else "\x1b[0m";
+                self.writer.writeAll(slice) catch return RPCError.IOError;
+            }
             self.writer.writeAll(c.char[0..len]) catch return RPCError.IOError;
         }
         self.writer.writeAll("\r\n") catch return RPCError.IOError;
