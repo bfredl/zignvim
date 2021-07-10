@@ -24,6 +24,12 @@ buf: [1024]u8 = undefined,
 decoder: mpack.Decoder = undefined,
 rpc: RPC = undefined,
 
+window: *c.GtkWindow = undefined,
+da: *c.GtkWidget = undefined,
+cs: ?*c.cairo_surface_t = null,
+rows: u16 = 0,
+cols: u16 = 0,
+
 // TODO: this fails to build???
 // decodeFrame: @Frame(RPC.decodeLoop) = undefined,
 df: anyframe->RPC.RPCError!void = undefined,
@@ -102,7 +108,7 @@ fn on_stdout(_: ?*c.GIOChannel, cond: c.GIOCondition, data: c.gpointer) callconv
 
     var self = get_self(data);
     if (self.decoder.frame == null) {
-        c.g_print("The cow jumped over the moon\n");
+        dbg("The cow jumped over the moon\n", .{});
         nosuspend await self.df catch @panic("mooooh");
         return 0;
     }
@@ -120,14 +126,36 @@ fn on_stdout(_: ?*c.GIOChannel, cond: c.GIOCondition, data: c.gpointer) callconv
 
     while (self.rpc.frame) |frame| {
         // NB: this doesn't mean specifically flush,
-        // but currently it is the only event rpc can return back
+        // but currently it is the only event rpc will return back
         // to the main loop
-        dbg("le flush\n", .{});
-        self.rpc.dumpGrid() catch @panic("le panic");
+        self.flush() catch @panic("le panic");
         resume frame;
     }
 
     return 1;
+}
+
+fn flush(self: *Self) !void {
+    dbg("le flush\n", .{});
+    try self.rpc.dumpGrid();
+
+    const grid = &self.rpc.grid[0];
+    if (self.rows != grid.rows or self.cols != grid.cols) {
+        dbg("le resize\n", .{});
+        self.rows = grid.rows;
+        self.cols = grid.cols;
+        const width = self.cols * 8;
+        const height = self.rows * 16;
+
+        c.gtk_drawing_area_set_content_width(g.GTK_DRAWING_AREA(self.da), width);
+        c.gtk_drawing_area_set_content_height(g.GTK_DRAWING_AREA(self.da), height);
+
+        if (self.cs) |cs| {
+            c.cairo_surface_destroy(cs);
+        }
+        const surface = c.gtk_native_get_surface(g.g_cast(c.GtkNative, c.gtk_native_get_type(), self.window));
+        self.cs = c.gdk_surface_create_similar_surface(surface, c.CAIRO_CONTENT_COLOR, width, height);
+    }
 }
 
 fn init(self: *Self) !void {
@@ -157,19 +185,21 @@ fn activate(app: *c.GtkApplication, data: c.gpointer) callconv(.C) void {
     self.init() catch @panic("heeee");
 
     var window: *c.GtkWidget = c.gtk_application_window_new(app);
+    self.window = window;
+
     c.gtk_window_set_title(g.GTK_WINDOW(window), "Window");
     c.gtk_window_set_default_size(g.GTK_WINDOW(window), 200, 200);
     var box: *c.GtkWidget = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 0);
     c.gtk_window_set_child(g.GTK_WINDOW(window), box);
-    var da: *c.GtkWidget = c.gtk_drawing_area_new();
-    c.gtk_drawing_area_set_content_width(g.GTK_DRAWING_AREA(da), 500);
-    c.gtk_drawing_area_set_content_height(g.GTK_DRAWING_AREA(da), 500);
+    self.da = c.gtk_drawing_area_new();
+    c.gtk_drawing_area_set_content_width(g.GTK_DRAWING_AREA(self.da), 500);
+    c.gtk_drawing_area_set_content_height(g.GTK_DRAWING_AREA(self.da), 500);
     var key_ev = c.gtk_event_controller_key_new();
     c.gtk_widget_add_controller(window, key_ev);
     var im_context = c.gtk_im_multicontext_new();
     // ibus on gtk4 has bug :(
     // c.gtk_event_controller_key_set_im_context(g.g_cast(c.GtkEventControllerKey, c.gtk_event_controller_key_get_type(), key_ev), im_context);
-    c.gtk_im_context_set_client_widget(im_context, da);
+    c.gtk_im_context_set_client_widget(im_context, self.da);
     c.gtk_im_context_set_use_preedit(im_context, c.FALSE);
     _ = g.g_signal_connect(key_ev, "key-pressed", g.G_CALLBACK(key_pressed), self);
     _ = g.g_signal_connect(im_context, "commit", g.G_CALLBACK(commit), self);
@@ -180,10 +210,10 @@ fn activate(app: *c.GtkApplication, data: c.gpointer) callconv(.C) void {
     _ = g.g_signal_connect(focus_ev, "enter", g.G_CALLBACK(focus_enter), im_context);
     _ = g.g_signal_connect(focus_ev, "leave", g.G_CALLBACK(focus_leave), im_context);
     c.gtk_widget_set_focusable(window, 1);
-    c.gtk_widget_set_focusable(da, 1);
+    c.gtk_widget_set_focusable(self.da, 1);
 
-    //_ = g.g_signal_connect_swapped(da, "clicked", g.G_CALLBACK(c.gtk_window_destroy), window);
-    c.gtk_box_append(g.GTK_BOX(box), da);
+    //_ = g.g_signal_connect_swapped(self.da, "clicked", g.G_CALLBACK(c.gtk_window_destroy), window);
+    c.gtk_box_append(g.GTK_BOX(box), self.da);
     c.gtk_widget_show(window);
 }
 pub fn main() u8 {
