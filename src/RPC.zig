@@ -19,6 +19,8 @@ grid: [1]Grid,
 
 attr_id: u16 = 0,
 
+frame: ?anyframe = null,
+
 const Self = @This();
 
 const Grid = struct {
@@ -135,9 +137,11 @@ fn handleRedraw(self: *Self, decoder: *mpack.Decoder) RPCError!void {
                 try decoder.skipAhead(iargs - 1);
 
                 dbg("==FLUSHED\n", .{});
-                try self.dumpGrid();
-                const c = self.cursor;
-                self.writer.print("\x1b[{};{}H", .{ c.row + 1, c.col + 1 }) catch return RPCError.IOError;
+
+                suspend {
+                    self.frame = @frame();
+                }
+                self.frame = null;
                 //std.time.sleep(1000 * 1000000);
             },
             .hl_attr_define => {
@@ -261,7 +265,7 @@ fn handleGridLine(self: *Self, decoder: *mpack.Decoder, nlines: u32) RPCError!vo
     }
 }
 
-fn dumpGrid(self: *Self) RPCError!void {
+pub fn dumpGrid(self: *Self) RPCError!void {
     self.writer.print("\x1b[H", .{}) catch return RPCError.IOError;
     const grid = &self.grid[0];
     var row: u16 = 0;
@@ -287,6 +291,9 @@ fn dumpGrid(self: *Self) RPCError!void {
             self.writer.writeAll(c.char[0..len]) catch return RPCError.IOError;
         }
     }
+
+    const c = self.cursor;
+    self.writer.print("\x1b[{};{}H", .{ c.row + 1, c.col + 1 }) catch return RPCError.IOError;
 }
 
 //const native_endian = std.Target.current.cpu.arch.endian();

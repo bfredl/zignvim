@@ -117,6 +117,16 @@ fn on_stdout(_: ?*c.GIOChannel, cond: c.GIOCondition, data: c.gpointer) callconv
     self.decoder.data = self.buf[0 .. oldlen + lenny];
 
     resume self.decoder.frame.?;
+
+    while (self.rpc.frame) |frame| {
+        // NB: this doesn't mean specifically flush,
+        // but currently it is the only event rpc can return back
+        // to the main loop
+        dbg("le flush\n", .{});
+        self.rpc.dumpGrid() catch @panic("le panic");
+        resume frame;
+    }
+
     return 1;
 }
 
