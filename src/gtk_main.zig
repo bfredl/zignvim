@@ -159,9 +159,6 @@ fn flush(self: *Self) !void {
         const height = @intCast(c_int, self.rows * self.cell_height);
 
         dbg("LE METRICS {} {}", .{ width, height });
-        if (width > 1) {
-            @panic("le panic");
-        }
 
         c.gtk_drawing_area_set_content_width(g.GTK_DRAWING_AREA(self.da), width);
         c.gtk_drawing_area_set_content_height(g.GTK_DRAWING_AREA(self.da), height);
@@ -172,6 +169,10 @@ fn flush(self: *Self) !void {
         const surface = c.gtk_native_get_surface(g.g_cast(c.GtkNative, c.gtk_native_get_type(), self.window));
         self.cs = c.gdk_surface_create_similar_surface(surface, c.CAIRO_CONTENT_COLOR, width, height);
     }
+}
+
+fn pango_pixels_ceil(u: c_int) c_int {
+    return @divTrunc((u + (c.PANGO_SCALE - 1)), c.PANGO_SCALE);
 }
 
 fn set_font(self: *Self, font: [:0]const u8) !void {
@@ -194,10 +195,10 @@ fn set_font(self: *Self, font: [:0]const u8) !void {
     var metrics = c.pango_context_get_metrics(pctx, fontdesc, c.pango_context_get_language(pctx));
     var width = c.pango_font_metrics_get_approximate_char_width(metrics);
     var height = c.pango_font_metrics_get_height(metrics);
-    self.cell_width = @intCast(u32, width);
-    self.cell_height = @intCast(u32, height);
+    self.cell_width = @intCast(u32, pango_pixels_ceil(width));
+    self.cell_height = @intCast(u32, pango_pixels_ceil(height));
 
-    dbg("le foont terrible {} {}\n", .{ width, height });
+    dbg("le foont terrible {} {}\n", .{ self.cell_width, self.cell_height });
 
     self.layout = c.pango_layout_new(pctx) orelse return error.AmIAloneInHere;
     c.pango_layout_set_font_description(self.layout, fontdesc);
