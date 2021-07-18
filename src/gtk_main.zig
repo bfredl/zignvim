@@ -32,8 +32,8 @@ cols: u16 = 0,
 
 layout: *c.PangoLayout = undefined,
 //font_name: []u8,
-cell_width: u16 = 0,
-cell_height: u16 = 0,
+cell_width: u32 = 0,
+cell_height: u32 = 0,
 
 // TODO: this fails to build???
 // decodeFrame: @Frame(RPC.decodeLoop) = undefined,
@@ -155,8 +155,13 @@ fn flush(self: *Self) !void {
         dbg("le resize\n", .{});
         self.rows = grid.rows;
         self.cols = grid.cols;
-        const width = self.cols * self.cell_width;
-        const height = self.rows * self.cell_height;
+        const width = @intCast(c_int, self.cols * self.cell_width);
+        const height = @intCast(c_int, self.rows * self.cell_height);
+
+        dbg("LE METRICS {} {}", .{ width, height });
+        if (width > 1) {
+            @panic("le panic");
+        }
 
         c.gtk_drawing_area_set_content_width(g.GTK_DRAWING_AREA(self.da), width);
         c.gtk_drawing_area_set_content_height(g.GTK_DRAWING_AREA(self.da), height);
@@ -174,10 +179,12 @@ fn set_font(self: *Self, font: [:0]const u8) !void {
 
     // TODO: shorten the three-step dance?
     const surface = c.gtk_native_get_surface(g.g_cast(c.GtkNative, c.gtk_native_get_type(), self.window));
+    // TODO: this seems dumb. check what a gtk4 gnome-terminal would do!
+    const dummy_surface = c.gdk_surface_create_similar_surface(surface, c.CAIRO_CONTENT_COLOR, 500, 500);
     dbg("s {}\n", .{@ptrToInt(surface)});
-    const cc = c.gdk_surface_create_cairo_context(surface);
-    dbg("cc {}\n", .{@ptrToInt(cc)});
-    var cairo = c.gdk_cairo_context_cairo_create(cc);
+    //const cc = c.gdk_surface_create_cairo_context(surface);
+    // dbg("cc {}\n", .{@ptrToInt(cc)});
+    var cairo = c.cairo_create(dummy_surface);
     dbg("cairso {}\n", .{@ptrToInt(cairo)});
     var fontdesc = c.pango_font_description_from_string(font);
 
@@ -187,8 +194,10 @@ fn set_font(self: *Self, font: [:0]const u8) !void {
     var metrics = c.pango_context_get_metrics(pctx, fontdesc, c.pango_context_get_language(pctx));
     var width = c.pango_font_metrics_get_approximate_char_width(metrics);
     var height = c.pango_font_metrics_get_height(metrics);
-    self.cell_width = @intCast(u16, width);
-    self.cell_height = @intCast(u16, height);
+    self.cell_width = @intCast(u32, width);
+    self.cell_height = @intCast(u32, height);
+
+    dbg("le foont terrible {} {}\n", .{ width, height });
 
     self.layout = c.pango_layout_new(pctx) orelse return error.AmIAloneInHere;
     c.pango_layout_set_font_description(self.layout, fontdesc);
