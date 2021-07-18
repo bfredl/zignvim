@@ -30,6 +30,11 @@ cs: ?*c.cairo_surface_t = null,
 rows: u16 = 0,
 cols: u16 = 0,
 
+layout: *c.PangoLayout = undefined,
+//font_name: []u8,
+cell_width: u16 = 0,
+cell_height: u16 = 0,
+
 // TODO: this fails to build???
 // decodeFrame: @Frame(RPC.decodeLoop) = undefined,
 df: anyframe->RPC.RPCError!void = undefined,
@@ -140,12 +145,18 @@ fn flush(self: *Self) !void {
     try self.rpc.dumpGrid();
 
     const grid = &self.rpc.grid[0];
+
+    // TODO: the right condition for "font[size] changed"
+    if (self.cell_height == 0) {
+        try self.set_font("JuliaMono 15");
+    }
+
     if (self.rows != grid.rows or self.cols != grid.cols) {
         dbg("le resize\n", .{});
         self.rows = grid.rows;
         self.cols = grid.cols;
-        const width = self.cols * 8;
-        const height = self.rows * 16;
+        const width = self.cols * self.cell_width;
+        const height = self.rows * self.cell_height;
 
         c.gtk_drawing_area_set_content_width(g.GTK_DRAWING_AREA(self.da), width);
         c.gtk_drawing_area_set_content_height(g.GTK_DRAWING_AREA(self.da), height);
@@ -156,6 +167,32 @@ fn flush(self: *Self) !void {
         const surface = c.gtk_native_get_surface(g.g_cast(c.GtkNative, c.gtk_native_get_type(), self.window));
         self.cs = c.gdk_surface_create_similar_surface(surface, c.CAIRO_CONTENT_COLOR, width, height);
     }
+}
+
+fn set_font(self: *Self, font: [:0]const u8) !void {
+    // TODO: LEAK ALL THE THINGS!
+
+    // TODO: shorten the three-step dance?
+    const surface = c.gtk_native_get_surface(g.g_cast(c.GtkNative, c.gtk_native_get_type(), self.window));
+    dbg("s {}\n", .{@ptrToInt(surface)});
+    const cc = c.gdk_surface_create_cairo_context(surface);
+    dbg("cc {}\n", .{@ptrToInt(cc)});
+    var cairo = c.gdk_cairo_context_cairo_create(cc);
+    dbg("cairso {}\n", .{@ptrToInt(cairo)});
+    var fontdesc = c.pango_font_description_from_string(font);
+
+    var pctx = c.pango_cairo_create_context(cairo);
+    c.pango_context_set_font_description(pctx, fontdesc);
+
+    var metrics = c.pango_context_get_metrics(pctx, fontdesc, c.pango_context_get_language(pctx));
+    var width = c.pango_font_metrics_get_approximate_char_width(metrics);
+    var height = c.pango_font_metrics_get_height(metrics);
+    self.cell_width = @intCast(u16, width);
+    self.cell_height = @intCast(u16, height);
+
+    self.layout = c.pango_layout_new(pctx) orelse return error.AmIAloneInHere;
+    c.pango_layout_set_font_description(self.layout, fontdesc);
+    c.pango_layout_set_alignment(self.layout, c.PANGO_ALIGN_LEFT);
 }
 
 fn init(self: *Self) !void {
@@ -185,7 +222,7 @@ fn activate(app: *c.GtkApplication, data: c.gpointer) callconv(.C) void {
     self.init() catch @panic("heeee");
 
     var window: *c.GtkWidget = c.gtk_application_window_new(app);
-    self.window = window;
+    self.window = g.GTK_WINDOW(window);
 
     c.gtk_window_set_title(g.GTK_WINDOW(window), "Window");
     c.gtk_window_set_default_size(g.GTK_WINDOW(window), 200, 200);
