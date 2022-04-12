@@ -57,7 +57,7 @@ pub fn dummy_loop(stdout: anytype, allocator: mem.Allocator) !void {
     // 11920 with fully async readHead()
     // 5928 without
 
-    while (decoder.frame != null) {
+    while (decoder.frame) |decoder_frame| {
         const oldlen = decoder.data.len;
         if (oldlen > 0 and decoder.data.ptr != &buf) {
             // TODO: avoid move if remaining space is plenty (like > 900)
@@ -66,7 +66,12 @@ pub fn dummy_loop(stdout: anytype, allocator: mem.Allocator) !void {
         lenny = try stdout.read(buf[oldlen..]);
         decoder.data = buf[0 .. oldlen + lenny];
 
-        resume decoder.frame.?;
+        resume decoder_frame;
+
+        while (rpc.frame) |frame| {
+            // here we would have redrawn if we were a real UI
+            resume frame;
+        }
     }
 
     try nosuspend await decodeFrame;
