@@ -206,15 +206,16 @@ fn set_font(self: *Self, font: [:0]const u8) !void {
 }
 
 fn init(self: *Self) !void {
-    self.child = try io.spawn(&self.gpa.allocator);
-    self.enc_buf = ArrayList(u8).init(&self.gpa.allocator);
-    self.key_buf = ArrayList(u8).init(&self.gpa.allocator);
+    const allocator = self.gpa.allocator();
+    self.child = try io.spawn(allocator);
+    self.enc_buf = ArrayList(u8).init(allocator);
+    self.key_buf = ArrayList(u8).init(allocator);
 
     self.decoder = mpack.Decoder{ .data = self.buf[0..0] };
-    self.rpc = RPC.init(&self.gpa.allocator);
+    self.rpc = RPC.init(allocator);
 
     // TODO: this should not be allocated, but @Frame(RPC.decodeLoop) fails at module scope..
-    var decodeFrame = try self.gpa.allocator.create(@Frame(RPC.decodeLoop));
+    var decodeFrame = try allocator.create(@Frame(RPC.decodeLoop));
     decodeFrame.* = async self.rpc.decodeLoop(&self.decoder);
     self.df = decodeFrame;
 

@@ -36,7 +36,7 @@ const Cell = struct {
     attr_id: u16,
 };
 
-pub fn init(allocator: *mem.Allocator) Self {
+pub fn init(allocator: mem.Allocator) Self {
     return .{
         .attr_arena = ArrayList(u8).init(allocator),
         .attr_off = ArrayList(AttrOffset).init(allocator),

@@ -5,7 +5,7 @@ const RPC = @import("./RPC.zig");
 
 const ChildProcess = std.ChildProcess;
 
-pub fn spawn(allocator: *mem.Allocator) !*std.ChildProcess {
+pub fn spawn(allocator: mem.Allocator) !*std.ChildProcess {
     //const argv = &[_][]const u8{ "nvim", "--embed" };
     const argv = &[_][]const u8{ "nvim", "--embed", "-u", "NORC" };
     const child = try std.ChildProcess.init(argv, allocator);
@@ -46,7 +46,7 @@ pub fn unsafe_input(encoder: anytype, input: []const u8) !void {
     try encoder.putStr(input);
 }
 
-pub fn dummy_loop(stdout: anytype, allocator: *mem.Allocator) !void {
+pub fn dummy_loop(stdout: anytype, allocator: mem.Allocator) !void {
     var buf: [1024]u8 = undefined;
     var lenny = try stdout.read(&buf);
     var decoder = mpack.Decoder{ .data = buf[0..lenny] };
