@@ -8,8 +8,7 @@ pub fn main() !void {
     // And I Am abandoned by the light
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     // They said I’m doomed to be a child
-    var child = try io_native.spawn(gpa.allocator());
-    defer child.deinit();
+    var child = try io_native.spawn(gpa.allocator(), null);
 
     const ByteArray = ArrayList(u8);
     var x = ByteArray.init(gpa.allocator());

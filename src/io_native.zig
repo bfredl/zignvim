@@ -5,10 +5,10 @@ const RPC = @import("./RPC.zig");
 
 const ChildProcess = std.ChildProcess;
 
-pub fn spawn(allocator: mem.Allocator) !*std.ChildProcess {
+pub fn spawn(allocator: mem.Allocator) !std.ChildProcess {
     //const argv = &[_][]const u8{ "nvim", "--embed" };
     const argv = &[_][]const u8{ "nvim", "--embed", "-u", "NORC" };
-    const child = try std.ChildProcess.init(argv, allocator);
+    var child = std.ChildProcess.init(argv, allocator);
 
     child.stdout_behavior = ChildProcess.StdIo.Pipe;
     child.stdin_behavior = ChildProcess.StdIo.Pipe;

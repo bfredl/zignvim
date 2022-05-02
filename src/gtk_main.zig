@@ -16,7 +16,7 @@ const io_mode = std.io.Mode.evented;
 
 gpa: std.heap.GeneralPurposeAllocator(.{}),
 
-child: *std.ChildProcess = undefined,
+child: std.ChildProcess = undefined,
 enc_buf: ArrayList(u8) = undefined,
 key_buf: ArrayList(u8) = undefined,
 
