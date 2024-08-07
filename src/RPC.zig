@@ -55,12 +55,12 @@ pub const RPCError = mpack.Decoder.Error || error{
 pub fn decodeLoop(self: *Self, decoder: *mpack.Decoder) RPCError!void {
     while (true) {
         try decoder.start();
-        var msgHead = try decoder.expectArray();
+        const msgHead = try decoder.expectArray();
         if (msgHead < 3) {
             return RPCError.MalformatedRPCMessage;
         }
 
-        var msgKind = try decoder.expectUInt();
+        const msgKind = try decoder.expectUInt();
         switch (msgKind) {
             1 => try self.decodeResponse(decoder, msgHead),
             2 => try self.decodeEvent(decoder, msgHead),
@@ -74,7 +74,7 @@ fn decodeResponse(self: *Self, decoder: *mpack.Decoder, arraySize: u32) RPCError
     if (arraySize != 4) {
         return error.MalformatedRPCMessage;
     }
-    var id = try decoder.expectUInt();
+    const id = try decoder.expectUInt();
     dbg("id: {}\n", .{id});
     var state = try decoder.readHead();
     dbg("{}\n", .{state});
@@ -86,7 +86,7 @@ fn decodeEvent(self: *Self, decoder: *mpack.Decoder, arraySize: u32) RPCError!vo
     if (arraySize != 3) {
         return error.MalformatedRPCMessage;
     }
-    var name = try decoder.expectString();
+    const name = try decoder.expectString();
     if (mem.eql(u8, name, "redraw")) {
         try self.handleRedraw(decoder);
     } else {
@@ -177,8 +177,8 @@ fn handleGridResize(self: *Self, decoder: *mpack.Decoder) RPCError!void {
     }
 
     const grid = &self.grid[grid_id - 1];
-    grid.cols = @intCast(u16, try decoder.expectUInt());
-    grid.rows = @intCast(u16, try decoder.expectUInt());
+    grid.cols = @intCast(try decoder.expectUInt());
+    grid.rows = @intCast(try decoder.expectUInt());
 
     try grid.cell.resize(grid.rows * grid.cols);
 
@@ -232,7 +232,7 @@ fn handleGridLine(self: *Self, decoder: *mpack.Decoder, nlines: u32) RPCError!vo
             }
 
             if (nsize >= 2) {
-                attr_id = @intCast(u16, try decoder.expectUInt());
+                attr_id = @intCast(try decoder.expectUInt());
                 used = 2;
                 if (nsize >= 3) {
                     repeat = try decoder.expectUInt();
@@ -278,7 +278,7 @@ pub fn dumpGrid(self: *Self) RPCError!void {
         var col: u16 = 0;
         while (col < grid.cols) : (col += 1) {
             const c = grid.cell.items[o + col];
-            var len = mem.indexOfScalar(u8, &c.char, 0) orelse charsize;
+            const len = mem.indexOfScalar(u8, &c.char, 0) orelse charsize;
             if (c.attr_id != attr_id) {
                 attr_id = c.attr_id;
                 const slice = if (attr_id > 0) theslice: {
@@ -325,12 +325,12 @@ fn handleHlAttrDef(self: *Self, decoder: *mpack.Decoder, nattrs: u32) RPCError!v
                 .foreground => {
                     const num = try decoder.expectUInt();
                     //dbg(" fg={}", .{num});
-                    fg = @intCast(u32, num);
+                    fg = @intCast(num);
                 },
                 .background => {
                     const num = try decoder.expectUInt();
                     //dbg(" bg={}", .{num});
-                    bg = @intCast(u32, num);
+                    bg = @intCast(num);
                 },
                 .bold => {
                     _ = try decoder.readHead();
@@ -343,21 +343,21 @@ fn handleHlAttrDef(self: *Self, decoder: *mpack.Decoder, nattrs: u32) RPCError!v
                 },
             }
         }
-        const pos = @intCast(u32, self.attr_arena.items.len);
+        const pos: u32 = @intCast(self.attr_arena.items.len);
         const w = self.attr_arena.writer();
         try w.writeAll("\x1b[0m");
         if (fg) |the_fg| {
-            const rgb = @bitCast(RGB, the_fg);
+            const rgb: RGB = @bitCast(the_fg);
             try doColors(w, true, rgb);
         }
         if (bg) |the_bg| {
-            const rgb = @bitCast(RGB, the_bg);
+            const rgb: RGB = @bitCast(the_bg);
             try doColors(w, false, rgb);
         }
         if (bold) {
             try w.writeAll("\x1b[1m");
         }
-        const endpos = @intCast(u32, self.attr_arena.items.len);
+        const endpos: u32 = @intCast(self.attr_arena.items.len);
         try putAt(&self.attr_off, id, .{ .start = pos, .end = endpos });
         //dbg("\n", .{});
 
@@ -368,18 +368,18 @@ fn handleHlAttrDef(self: *Self, decoder: *mpack.Decoder, nattrs: u32) RPCError!v
 
 fn handleCursorGoto(self: *Self, decoder: *mpack.Decoder) RPCError!void {
     const nsize = try decoder.expectArray();
-    const grid = @intCast(u32, try decoder.expectUInt());
-    const row = @intCast(u16, try decoder.expectUInt());
-    const col = @intCast(u16, try decoder.expectUInt());
+    const grid: u32 = @intCast(try decoder.expectUInt());
+    const row: u16 = @intCast(try decoder.expectUInt());
+    const col: u16 = @intCast(try decoder.expectUInt());
     try decoder.skipAhead(nsize - 3);
     self.cursor = .{ .grid = grid, .row = row, .col = col };
 }
 
 fn handleDefaultColorsSet(self: *Self, decoder: *mpack.Decoder) RPCError!void {
     const nsize = try decoder.expectArray();
-    const fg = @intCast(u32, try decoder.expectUInt());
-    const bg = @intCast(u32, try decoder.expectUInt());
-    const sp = @intCast(u32, try decoder.expectUInt());
+    const fg: u32 = @intCast(try decoder.expectUInt());
+    const bg: u32 = @intCast(try decoder.expectUInt());
+    const sp: u32 = @intCast(try decoder.expectUInt());
     try decoder.skipAhead(nsize - 3);
     self.default_colors = .{ .fg = fg, .bg = bg, .sp = sp };
 }

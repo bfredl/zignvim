@@ -3,19 +3,20 @@ const mem = std.mem;
 const mpack = @import("./mpack.zig");
 const RPC = @import("./RPC.zig");
 
-const ChildProcess = std.ChildProcess;
+const Child = std.process.Child;
 
 const os = std.os;
 
-pub fn spawn(allocator: mem.Allocator, stdin_fd: ?i32) !std.ChildProcess {
+pub fn spawn(allocator: mem.Allocator, stdin_fd: ?i32) !std.process.Child {
     //const argv = &[_][]const u8{ "nvim", "--embed" };
     const argv = &[_][]const u8{ "nvim", "--embed", "-u", "NORC" };
-    var child = std.ChildProcess.init(argv, allocator);
+    var child = std.process.Child.init(argv, allocator);
 
-    child.stdout_behavior = ChildProcess.StdIo.Pipe;
-    child.stdin_behavior = ChildProcess.StdIo.Pipe;
-    child.stderr_behavior = ChildProcess.StdIo.Inherit;
-    child.bonus_fd = stdin_fd;
+    child.stdout_behavior = Child.StdIo.Pipe;
+    child.stdin_behavior = Child.StdIo.Pipe;
+    child.stderr_behavior = Child.StdIo.Inherit;
+    if (stdin_fd) |_| unreachable;
+    // child.bonus_fd = stdin_fd;
     try child.spawn();
     return child;
 }

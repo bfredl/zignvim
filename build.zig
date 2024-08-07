@@ -1,43 +1,58 @@
-const Builder = @import("std").build.Builder;
+const std = @import("std");
 
-pub fn build(b: *Builder) void {
-    const mode = b.standardReleaseOptions();
+pub fn build(b: *std.Build) void {
+    const t = b.standardTargetOptions(.{});
+    const opt = b.standardOptimizeOption(.{});
 
-    const lib = b.addStaticLibrary("zignvim", "src/main.zig");
-    lib.setBuildMode(mode);
-    //lib.install();
+    const io_test = b.step("io_test", "fooka amnitel");
+    const io_test_exe = b.addExecutable(.{
+        .name = "io_test",
+        .root_source_file = b.path( "src/io_test.zig" ),
+        .optimize = opt,
+        .target = t,
+    });
+    b.installArtifact(io_test_exe);
+    const run_cmd = b.addRunArtifact(io_test_exe);
+    io_test.dependOn(&run_cmd.step);
 
-    const exe_uv = b.addExecutable("iotest_uv", "src/io_uv.zig");
-    exe_uv.linkSystemLibrary("c");
-    exe_uv.linkSystemLibrary("uv");
-    exe_uv.setBuildMode(mode);
-    // exe_uv.install();
+    if (false) {
+        const mode = b.standardReleaseOptions();
+        const lib = b.addStaticLibrary("zignvim", "src/main.zig");
+        lib.setBuildMode(mode);
+        //lib.install();
 
-    const exe_gtk = b.addExecutable("gtk_main", "src/gtk_main.zig");
-    exe_gtk.linkLibC();
-    exe_gtk.linkSystemLibrary("gtk4");
-    exe_gtk.setBuildMode(mode);
-    exe_gtk.install();
+        const exe_uv = b.addExecutable("iotest_uv", "src/io_uv.zig");
+        exe_uv.linkSystemLibrary("c");
+        exe_uv.linkSystemLibrary("uv");
+        exe_uv.setBuildMode(mode);
+        // exe_uv.install();
 
-    const exe = b.addExecutable("iotest", "src/io_test.zig");
-    exe.setBuildMode(mode);
-    exe.install();
+        const exe_gtk = b.addExecutable("gtk_main", "src/gtk_main.zig");
+        exe_gtk.linkLibC();
+        exe_gtk.linkSystemLibrary("gtk4");
+        exe_gtk.setBuildMode(mode);
+        exe_gtk.install();
 
-    var main_tests = b.addTest("src/main.zig");
-    main_tests.setBuildMode(mode);
+        const exe = b.addExecutable("iotest", "src/io_test.zig");
+        exe.setBuildMode(mode);
+        exe.install();
 
-    var msgpack_tests = b.addTest("src/mpack.zig");
-    msgpack_tests.setBuildMode(mode);
+        var main_tests = b.addTest("src/main.zig");
+        main_tests.setBuildMode(mode);
 
-    const test_step = b.step("test", "Run library tests");
-    // test_step.dependOn(&main_tests.step);
-    test_step.dependOn(&msgpack_tests.step);
+        var msgpack_tests = b.addTest("src/mpack.zig");
+        msgpack_tests.setBuildMode(mode);
 
-    const iotest_step = b.step("iotest", "Basic ");
-    const run = exe.run();
-    iotest_step.dependOn(&run.step);
+        const test_step = b.step("test", "Run library tests");
+        // test_step.dependOn(&main_tests.step);
+        test_step.dependOn(&msgpack_tests.step);
 
-    const gtktest_step = b.step("gtktest", "Accomplished ");
-    const gtkrun = exe_gtk.run();
-    gtktest_step.dependOn(&gtkrun.step);
+        const iotest_step = b.step("iotest", "Basic ");
+        const run = exe.run();
+        iotest_step.dependOn(&run.step);
+
+        const gtktest_step = b.step("gtktest", "Accomplished ");
+        const gtkrun = exe_gtk.run();
+        gtktest_step.dependOn(&gtkrun.step);
+    }
 }

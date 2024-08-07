@@ -12,47 +12,47 @@ pub fn Encoder(comptime WriterType: type) type {
             if (T == u8) {
                 try self.writer.writeByte(val);
             } else if (T == u16) {
-                try self.put(u8, @intCast(u8, (val >> 8) & 0xFF));
-                try self.put(u8, @intCast(u8, val & 0xFF));
+                try self.put(u8, @intCast((val >> 8) & 0xFF));
+                try self.put(u8, @intCast(val & 0xFF));
             } else if (T == u32) {
-                try self.put(u8, @intCast(u8, (val >> 24) & 0xFF));
-                try self.put(u8, @intCast(u8, (val >> 16) & 0xFF));
-                try self.put(u8, @intCast(u8, (val >> 8) & 0xFF));
-                try self.put(u8, @intCast(u8, val & 0xFF));
+                try self.put(u8, @intCast((val >> 24) & 0xFF));
+                try self.put(u8, @intCast((val >> 16) & 0xFF));
+                try self.put(u8, @intCast((val >> 8) & 0xFF));
+                try self.put(u8, @intCast(val & 0xFF));
             }
         }
 
         pub fn putArrayHead(self: Self, count: u32) Error!void {
             if (count <= 15) {
-                try self.put(u8, 0x90 | @intCast(u8, count));
+                try self.put(u8, 0x90 | @as(u8, @intCast(count)));
             } else if (count <= std.math.maxInt(u16)) {
                 try self.put(u8, 0xdc);
-                try self.put(u16, @intCast(u16, count));
+                try self.put(u16, @intCast(count));
             } else {
                 try self.put(u8, 0xdd);
-                try self.put(u32, @intCast(u32, count));
+                try self.put(u32, @intCast(count));
             }
         }
 
         pub fn putMapHead(self: Self, count: u32) Error!void {
             if (count <= 15) {
-                try self.put(u8, 0x80 | @intCast(u8, count));
+                try self.put(u8, 0x80 | @as(u8, @intCast(count)));
             } else if (count <= std.math.maxInt(u16)) {
                 try self.put(u8, 0xde);
-                try self.put(u16, @intCast(u16, count));
+                try self.put(u16, @intCast(count));
             } else {
                 try self.put(u8, 0xdf);
-                try self.put(u32, @intCast(u32, count));
+                try self.put(u32, @intCast(count));
             }
         }
 
         pub fn putStr(self: Self, val: []const u8) Error!void {
             const len = val.len;
             if (len <= 31) {
-                try self.put(u8, 0xa0 + @intCast(u8, len));
+                try self.put(u8, 0xa0 + @as(u8,@intCast(len)));
             } else if (len <= 0xFF) {
                 try self.put(u8, 0xd9);
-                try self.put(u8, @intCast(u8, len));
+                try self.put(u8, @intCast(len));
             }
             try self.writer.writeAll(val);
         }
@@ -65,10 +65,10 @@ pub fn Encoder(comptime WriterType: type) type {
             };
             if (unsigned or val >= 0) {
                 if (val <= 0x7f) {
-                    try self.put(u8, @intCast(u8, val));
+                    try self.put(u8, @intCast(val));
                 } else if (val <= std.math.maxInt(u8)) {
                     try self.put(u8, 0xcc);
-                    try self.put(u8, @intCast(u8, val));
+                    try self.put(u8, @intCast(val));
                 } else {
                     @panic("bbb");
                 }
@@ -104,7 +104,7 @@ pub const ValueHead = union(enum) {
 
 pub const Decoder = struct {
     data: []u8,
-    frame: ?anyframe = null,
+    // frame: ?anyframe = null,
 
     bytes: u32 = 0,
     items: usize = 0,
@@ -133,7 +133,7 @@ pub const Decoder = struct {
         while (self.data.len < size) {
             try self.getMoreData();
         }
-        var slice = self.data[0..size];
+        const slice = self.data[0..size];
         self.data = self.data[size..];
         return slice;
     }
@@ -143,7 +143,7 @@ pub const Decoder = struct {
         if (self.data.len < size) {
             return null;
         }
-        var slice = self.data[0..size];
+        const slice = self.data[0..size];
         self.data = self.data[size..];
         return slice;
     }
@@ -153,26 +153,26 @@ pub const Decoder = struct {
         if (@typeInfo(T) != .Int) {
             @compileError("why u no int???");
         }
-        var slice = self.maybeReadBytes(@sizeOf(T)) orelse return null;
+        const slice = self.maybeReadBytes(@sizeOf(T)) orelse return null;
         var out: T = undefined;
-        @memcpy(@ptrCast([*]u8, &out), slice.ptr, @sizeOf(T));
+        @memcpy(&out, slice);
 
         return std.mem.bigToNative(T, out);
     }
 
     fn readFloat(self: *Self, comptime T: type) ?T {
         const utype = if (T == f32) u32 else if (T == f64) u64 else undefined;
-        var int = self.readInt(utype) orelse return null;
-        return @bitCast(T, int);
+        const int = self.readInt(utype) orelse return null;
+        return @bitCast(int);
     }
 
     fn readFixExt(self: *Self, size: u32) ?ExtHead {
-        var kind = self.readInt(i8) orelse return null;
+        const kind = self.readInt(i8) orelse return null;
         return ExtHead{ .kind = kind, .size = size };
     }
 
     fn readExt(self: *Self, comptime sizetype: type) ?ExtHead {
-        var size = self.readInt(sizetype) orelse return null;
+        const size = self.readInt(sizetype) orelse return null;
         return self.readFixExt(size);
     }
 
@@ -190,7 +190,7 @@ pub const Decoder = struct {
         if (self.items == 0) {
             return error.InvalidDecodeOperation;
         }
-        var saved = self.items - 1;
+        const saved = self.items - 1;
         self.items = 1;
         return saved;
     }
@@ -247,10 +247,10 @@ pub const Decoder = struct {
             0xdd => .{ .Array = self.readInt(u32) orelse return null },
             0xde => .{ .Map = self.readInt(u16) orelse return null },
             0xdf => .{ .Map = self.readInt(u32) orelse return null },
-            0xe0...0xff => .{ .Int = @intCast(i64, first_byte) - 0x100 },
+            0xe0...0xff => .{ .Int = @as(i64, @intCast(first_byte)) - 0x100 },
         };
 
-        var size = itemSize(val);
+        const size = itemSize(val);
         self.items -= 1;
         self.bytes += size.bytes;
         self.items += size.items;
@@ -294,7 +294,7 @@ pub const Decoder = struct {
                 if (val < 0) {
                     return Error.UnexpectedTagError;
                 }
-                return @intCast(u64, val);
+                return @intCast(val);
             },
             else => return Error.UnexpectedTagError,
         }
