@@ -59,16 +59,18 @@ pub fn Encoder(comptime WriterType: type) type {
 
         pub fn putInt(self: Self, val: anytype) Error!void {
             const unsigned = comptime switch (@typeInfo(@TypeOf(val))) {
-                .Int => |int| int.signedness == .Unsigned,
+                .Int => |int| int.signedness == .unsigned,
                 .ComptimeInt => false, // or val >= 0 but handled below
                 else => unreachable,
             };
             if (unsigned or val >= 0) {
                 if (val <= 0x7f) {
-                    try self.put(u8, val);
+                    try self.put(u8, @intCast(u8, val));
                 } else if (val <= std.math.maxInt(u8)) {
                     try self.put(u8, 0xcc);
-                    try self.put(u8, val);
+                    try self.put(u8, @intCast(u8, val));
+                } else {
+                    @panic("bbb");
                 }
             } else {
                 @panic("aaa");

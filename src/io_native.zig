@@ -5,7 +5,9 @@ const RPC = @import("./RPC.zig");
 
 const ChildProcess = std.ChildProcess;
 
-pub fn spawn(allocator: mem.Allocator) !std.ChildProcess {
+const os = std.os;
+
+pub fn spawn(allocator: mem.Allocator, stdin_fd: ?i32) !std.ChildProcess {
     //const argv = &[_][]const u8{ "nvim", "--embed" };
     const argv = &[_][]const u8{ "nvim", "--embed", "-u", "NORC" };
     var child = std.ChildProcess.init(argv, allocator);
@@ -13,11 +15,12 @@ pub fn spawn(allocator: mem.Allocator) !std.ChildProcess {
     child.stdout_behavior = ChildProcess.StdIo.Pipe;
     child.stdin_behavior = ChildProcess.StdIo.Pipe;
     child.stderr_behavior = ChildProcess.StdIo.Inherit;
+    child.bonus_fd = stdin_fd;
     try child.spawn();
     return child;
 }
 
-pub fn attach_test(encoder: anytype) !void {
+pub fn attach_test(encoder: anytype, stdin_fd: ?i32) !void {
     if (false) {
         try encoder.putArrayHead(4);
         try encoder.putInt(0); // request
@@ -32,9 +35,13 @@ pub fn attach_test(encoder: anytype) !void {
         try encoder.putArrayHead(3);
         try encoder.putInt(80); // width
         try encoder.putInt(24); // height
-        try encoder.putMapHead(1);
+        try encoder.putMapHead(if (stdin_fd != null) 2 else 1);
         try encoder.putStr("ext_linegrid");
         try encoder.putBool(true);
+        if (stdin_fd) |fd| {
+            try encoder.putStr("stdin_fd");
+            try encoder.putInt(fd);
+        }
     }
 }
 

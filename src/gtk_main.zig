@@ -4,6 +4,7 @@ const g = @import("gtk_lib.zig");
 const io = @import("io_native.zig");
 const RPC = @import("RPC.zig");
 const mem = std.mem;
+const os = std.os;
 
 const ArrayList = std.ArrayList;
 const mpack = @import("./mpack.zig");
@@ -207,7 +208,13 @@ fn set_font(self: *Self, font: [:0]const u8) !void {
 
 fn init(self: *Self) !void {
     const allocator = self.gpa.allocator();
-    self.child = try io.spawn(allocator);
+
+    var the_fd: ?i32 = null;
+    if (true) {
+        the_fd = try os.dup(0);
+    }
+
+    self.child = try io.spawn(allocator, the_fd);
     self.enc_buf = ArrayList(u8).init(allocator);
     self.key_buf = ArrayList(u8).init(allocator);
 
@@ -220,7 +227,7 @@ fn init(self: *Self) !void {
     self.df = decodeFrame;
 
     var encoder = mpack.encoder(self.enc_buf.writer());
-    try io.attach_test(&encoder);
+    try io.attach_test(&encoder, if (the_fd) |_| @as(i32, 3) else null);
     try self.child.stdin.?.writeAll(self.enc_buf.items);
     try self.enc_buf.resize(0);
 
