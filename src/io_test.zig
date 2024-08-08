@@ -17,5 +17,5 @@ pub fn main() !void {
     try io_native.attach_test(&encoder, null);
     try child.stdin.?.writeAll(x.items);
 
-    // try io_native.dummy_loop(&child.stdout.?, gpa.allocator());
+    try io_native.dummy_loop(&child.stdout.?, gpa.allocator());
 }
