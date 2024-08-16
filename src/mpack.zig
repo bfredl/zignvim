@@ -102,11 +102,11 @@ pub const ValueHead = union(enum) {
     Ext: ExtHead,
 };
 
+// this is like the unsafeInnerDecoder, abstract properly with skipDecoder as the outer layer?
+// when anything returns `null` the decoder is an unknown state, always needs to be a copy()/accept() layer deep..
+// errors are really like ?(Error!value), when we return an error we have read enough to know we dun goofed..
 pub const Decoder = struct {
     data: []u8,
-
-    bytes: u32 = 0,
-    items: usize = 0,
 
     const Self = @This();
     pub const Error = error{
@@ -124,8 +124,7 @@ pub const Decoder = struct {
         self.* = c;
     }
 
-    // NB: returned slice is only valid until next getMoreData()!
-    fn maybeReadBytes(self: *Self, size: usize) ?[]u8 {
+    fn readBytes(self: *Self, size: usize) ?[]u8 {
         if (self.data.len < size) {
             return null;
         }
@@ -139,7 +138,7 @@ pub const Decoder = struct {
         if (@typeInfo(T) != .Int) {
             @compileError("why u no int???");
         }
-        const slice = self.maybeReadBytes(@sizeOf(T)) orelse return null;
+        const slice = self.readBytes(@sizeOf(T)) orelse return null;
         var out: T = undefined;
         @memcpy(std.mem.asBytes(&out), slice);
 
@@ -163,41 +162,8 @@ pub const Decoder = struct {
     }
 
     /// ]]|
-    const debugMode = true;
-
-    pub fn start(self: *Self) Error!void {
-        if (self.bytes > 0 or self.items > 0) {
-            return error.InvalidDecodeOperation;
-        }
-        self.items = 1;
-    }
-
-    pub fn push(self: *Self) Error!usize {
-        if (self.items == 0) {
-            return error.InvalidDecodeOperation;
-        }
-        const saved = self.items - 1;
-        self.items = 1;
-        return saved;
-    }
-
-    pub fn pop(self: *Self, saved: usize) Error!void {
-        if (self.bytes != 0 or self.items != 0) {
-            return error.InvalidDecodeOperation;
-        }
-        self.items = saved;
-    }
-
     pub fn readHead(self: *Self) Error!?ValueHead {
-        if (false) {
-            if (self.bytes > 0 or self.items == 0) {
-                return error.InvalidDecodeOperation;
-            }
-        }
-        const save_data = self.data;
-        const first_byte = (self.maybeReadBytes(1) orelse return null)[0];
-        var used_byte = false;
-        defer {if (!used_byte) self.data = save_data;}
+        const first_byte = (self.readBytes(1) orelse return null)[0];
 
         const val: ValueHead = switch (first_byte) {
             0x00...0x7f => .{ .Int = first_byte },
@@ -239,15 +205,6 @@ pub const Decoder = struct {
             0xe0...0xff => .{ .Int = @as(i64, @intCast(first_byte)) - 0x100 },
         };
 
-        used_byte = true;
-
-        const size = itemSize(val);
-        if (false) {
-            self.items -= 1;
-            self.bytes += size.bytes;
-            self.items += size.items;
-        }
-
         return val;
     }
 
@@ -279,22 +236,23 @@ pub const Decoder = struct {
         }
     }
 
-    pub fn expectString(self: *Self) Error![]u8 {
-        const size = switch (try self.readHead()) {
+    pub fn expectString(self: *Self) Error!?[]u8 {
+        const size = switch (try self.readHead() orelse return null) {
             .Str => |size| size,
             .Bin => |size| size,
             else => return Error.UnexpectedTagError,
         };
-        while (self.data.len < size) {
-            try self.getMoreData();
+        if (self.data.len < size) {
+            return null;
         }
 
         const str = self.data[0..size];
         self.data = self.data[size..];
-        self.bytes -= size;
         return str;
     }
 
+    // TODO: these for a skipDecoder wrapper
+    const debugMode = true;
     fn itemSize(head: ValueHead) struct { bytes: u32, items: usize } {
         return switch (head) {
             .Str => |size| .{ .bytes = size, .items = 0 },

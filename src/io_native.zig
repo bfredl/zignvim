@@ -29,9 +29,16 @@ pub fn attach_test(encoder: anytype, stdin_fd: ?i32) !void {
         try encoder.putStr("nvim_get_api_info");
         try encoder.putArrayHead(0);
     } else {
-        try encoder.putArrayHead(4);
-        try encoder.putInt(0); // request
-        try encoder.putInt(0); // msgid
+        if (false) {
+            // we prefer this once we have implemented replies..
+            try encoder.putArrayHead(4);
+            try encoder.putInt(0); // request
+            try encoder.putInt(0); // msgid
+        } else {
+            try encoder.putArrayHead(3);
+            try encoder.putInt(2); // notify
+        }
+
         try encoder.putStr("nvim_ui_attach");
         try encoder.putArrayHead(3);
         try encoder.putInt(80); // width
