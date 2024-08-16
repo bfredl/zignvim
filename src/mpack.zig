@@ -102,28 +102,20 @@ pub const ValueHead = union(enum) {
     Ext: ExtHead,
 };
 
+pub const MpackError = error{
+    MalformatedDataError,
+    UnexpectedEOFError,
+    UnexpectedTagError,
+    InvalidDecodeOperation,
+};
+
 // this is like the unsafeInnerDecoder, abstract properly with skipDecoder as the outer layer?
 // when anything returns `null` the decoder is an unknown state, always needs to be a copy()/accept() layer deep..
 // errors are really like ?(Error!value), when we return an error we have read enough to know we dun goofed..
-pub const Decoder = struct {
+pub const InnerDecoder = struct {
     data: []u8,
 
     const Self = @This();
-    pub const Error = error{
-        MalformatedDataError,
-        UnexpectedEOFError,
-        UnexpectedTagError,
-        InvalidDecodeOperation,
-    };
-
-    pub fn copy(self: *Self) Self {
-        return self.*;
-    }
-
-    pub fn accept(self: *Self, c: Self) void {
-        self.* = c;
-    }
-
     fn readBytes(self: *Self, size: usize) ?[]u8 {
         if (self.data.len < size) {
             return null;
@@ -162,7 +154,7 @@ pub const Decoder = struct {
     }
 
     /// ]]|
-    pub fn readHead(self: *Self) Error!?ValueHead {
+    pub fn readHead(self: *Self) MpackError!?ValueHead {
         const first_byte = (self.readBytes(1) orelse return null)[0];
 
         const val: ValueHead = switch (first_byte) {
@@ -171,7 +163,7 @@ pub const Decoder = struct {
             0x90...0x9f => .{ .Array = (first_byte - 0x90) },
             0xa0...0xbf => .{ .Str = (first_byte - 0xa0) },
             0xc0 => .Null,
-            0xc1 => return Error.MalformatedDataError,
+            0xc1 => return error.MalformatedDataError,
             0xc2 => .{ .Bool = false },
             0xc3 => .{ .Bool = true },
             0xc4 => .{ .Bin = self.readInt(u8) orelse return null },
@@ -209,38 +201,38 @@ pub const Decoder = struct {
     }
 
     // TODO: lol what is generic function? :S
-    pub fn expectArray(self: *Self) Error!?u32 {
+    pub fn expectArray(self: *Self) MpackError!?u32 {
         switch (try self.readHead() orelse return null) {
             .Array => |size| return size,
-            else => return Error.UnexpectedTagError,
+            else => return error.UnexpectedTagError,
         }
     }
 
-    pub fn expectMap(self: *Self) Error!u32 {
+    pub fn expectMap(self: *Self) MpackError!u32 {
         switch (try self.readHead()) {
             .Map => |size| return size,
-            else => return Error.UnexpectedTagError,
+            else => return error.UnexpectedTagError,
         }
     }
 
-    pub fn expectUInt(self: *Self) Error!?u64 {
+    pub fn expectUInt(self: *Self) MpackError!?u64 {
         switch (try self.readHead() orelse return null) {
             .UInt => |val| return val,
             .Int => |val| {
                 if (val < 0) {
-                    return Error.UnexpectedTagError;
+                    return error.UnexpectedTagError;
                 }
                 return @intCast(val);
             },
-            else => return Error.UnexpectedTagError,
+            else => return error.UnexpectedTagError,
         }
     }
 
-    pub fn expectString(self: *Self) Error!?[]u8 {
+    pub fn expectString(self: *Self) MpackError!?[]u8 {
         const size = switch (try self.readHead() orelse return null) {
             .Str => |size| size,
             .Bin => |size| size,
-            else => return Error.UnexpectedTagError,
+            else => return error.UnexpectedTagError,
         };
         if (self.data.len < size) {
             return null;
@@ -250,6 +242,31 @@ pub const Decoder = struct {
         self.data = self.data[size..];
         return str;
     }
+};
+
+pub const SkipDecoder = struct {
+    data: []u8,
+    bytes: u64 = 0,
+    items: u64 = 0,
+
+    fn init(data: []u8) Self {
+        return .{ .data = data };
+    }
+
+    fn rawInner(self: *Self) InnerDecoder {
+        return InnerDecoder{ .data = self.data };
+    }
+
+    pub fn inner(self: *Self) !InnerDecoder {
+        if (self.bytes > 0 or self.items > 0) return error.InvalidDecodeOperation;
+        return self.rawInner();
+    }
+
+    pub fn consumed(self: *Self, c: InnerDecoder) void {
+        self.data = c.data;
+    }
+
+    const Self = @This();
 
     // TODO: these for a skipDecoder wrapper
     const debugMode = true;
@@ -264,27 +281,30 @@ pub const Decoder = struct {
         };
     }
 
-    pub fn skipAhead(self: *Self, skipped: usize) Error!void {
-        var items: usize = skipped;
-        if (self.bytes > 0 or skipped > self.items) {
-            return error.InvalidDecodeOperation;
-        }
-
-        while (self.bytes > 0 or items > 0) {
+    pub fn skipData(self: *Self) MpackError!bool {
+        while (self.bytes > 0 or self.items > 0) {
+            if (self.data.len == 0) {
+                return false;
+            }
             if (self.bytes > 0) {
-                if (self.data.len == 0) {
-                    try self.getMoreData();
-                }
-                const skip = std.math.min(self.bytes, self.data.len);
+                const skip = @min(self.bytes, self.data.len);
                 self.data = self.data[skip..];
                 self.bytes -= skip;
-            } else if (items > 0) {
-                const head = try self.readHead();
-                items -= 1;
+            } else if (self.items > 0) {
+                var d = self.rawInner();
+                const head = try d.readHead() orelse return false;
+                self.consumed(d);
                 const size = itemSize(head);
-                items += size.items;
+                self.items += size.items;
+                self.items -= 1;
+                self.bytes += size.bytes;
             }
         }
+        return true;
+    }
+
+    pub fn toSkip(self: *Self, items: usize) void {
+        self.items += items;
     }
 };
 
@@ -302,7 +322,7 @@ test {
 
     try testing.expectEqualSlices(u8, &[_]u8{ 0x94, 0x04, 0xcc, 0xc8 }, x.items);
 
-    var decoder = Decoder{ .data = x.items };
+    var decoder = InnerDecoder{ .data = x.items };
     try testing.expectEqual(ValueHead{ .Array = 4 }, try decoder.readHead());
     try testing.expectEqual(ValueHead{ .Int = 4 }, try decoder.readHead());
     try testing.expectEqual(ValueHead{ .Int = 200 }, try decoder.readHead());

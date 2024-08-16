@@ -63,8 +63,7 @@ pub fn unsafe_input(encoder: anytype, input: []const u8) !void {
 
 pub fn dummy_loop(stdout: anytype, allocator: mem.Allocator) !void {
     var buf: [1024]u8 = undefined;
-    var lenny = try stdout.read(&buf);
-    var decoder = mpack.Decoder{ .data = buf[0..lenny] };
+    var decoder = mpack.SkipDecoder{ .data = buf[0..0] };
     var rpc = RPCState.init(allocator);
 
     // @compileLog(@sizeOf(@Frame(decodeLoop)));
@@ -77,7 +76,7 @@ pub fn dummy_loop(stdout: anytype, allocator: mem.Allocator) !void {
             // TODO: avoid move if remaining space is plenty (like > 900)
             mem.copyForwards(u8, &buf, decoder.data);
         }
-        lenny = try stdout.read(buf[oldlen..]);
+        const lenny = try stdout.read(buf[oldlen..]);
         decoder.data = buf[0 .. oldlen + lenny];
 
         try rpc.process(&decoder);
