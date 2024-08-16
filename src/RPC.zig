@@ -19,8 +19,6 @@ grid: [1]Grid,
 
 attr_id: u16 = 0,
 
-frame: ?anyframe = null,
-
 const Self = @This();
 
 const Grid = struct {
@@ -138,10 +136,8 @@ fn handleRedraw(self: *Self, decoder: *mpack.Decoder) RPCError!void {
 
                 dbg("==FLUSHED\n", .{});
 
-                suspend {
-                    self.frame = @frame();
-                }
-                self.frame = null;
+                unreachable;
+
                 //std.time.sleep(1000 * 1000000);
             },
             .hl_attr_define => {

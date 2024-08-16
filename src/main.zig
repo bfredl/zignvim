@@ -9,7 +9,7 @@ const Neovim = struct {
     allocator: *mem.Allocator,
 
     pub fn spawn(a: *mem.Allocator, optional_argv: ?[]const []const u8) !Neovim {
-        const argv = optional_argv orelse &[_][]const u8{"nvim", "--embed"};
+        const argv = optional_argv orelse &[_][]const u8{ "nvim", "--embed" };
         const child = try std.ChildProcess.init(argv, a);
         errdefer child.deinit();
 
@@ -19,15 +19,12 @@ const Neovim = struct {
 
         _ = try child.spawn();
 
-        return Neovim {
-            .nvim_child_proc = child,
-            .allocator = a
-        };
+        return Neovim{ .nvim_child_proc = child, .allocator = a };
     }
 
     pub fn do_nothing(x: c_int) void {}
 
-    pub fn call(self: Neovim, function_name: []const u8) !void { }
+    pub fn call(self: Neovim, function_name: []const u8) !void {}
 
     pub fn deinit(self: Neovim) void {
         self.nvim_child_proc.deinit();
@@ -42,5 +39,4 @@ test "whatever yo" {
 
     var buffer: [5]u8 = undefined;
     _ = try nvim.nvim_child_proc.stdout.?.read(&buffer);
-
 }

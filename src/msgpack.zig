@@ -314,7 +314,7 @@ fn deserializePrivate(allocator: *std.heap.ArenaAllocator, bytes: []const u8) an
 
     switch (starting_byte) {
         0xcc, // Uint8
-        0xd0 // Int8
+        0xd0, // Int8
         => return DeserializeRet{
             .deserialized = if (starting_byte == 0xcc)
                 toVal(bytes[1], u8)
@@ -323,7 +323,7 @@ fn deserializePrivate(allocator: *std.heap.ArenaAllocator, bytes: []const u8) an
             .new_bytes = bytes[2..bytes.len],
         },
         0xcd, // Uint16
-        0xd1 // Int16
+        0xd1, // Int16
         => return DeserializeRet{
             .deserialized = if (starting_byte == 0xcd)
                 deserializeSomething16(u16, bytes[1..3])
@@ -341,7 +341,7 @@ fn deserializePrivate(allocator: *std.heap.ArenaAllocator, bytes: []const u8) an
             .new_bytes = bytes[5..bytes.len],
         },
         0xcf, // Uint64
-        0xd3 // Int64
+        0xd3, // Int64
         => return DeserializeRet{
             .deserialized = if (starting_byte == 0xcf)
                 deserializeSomething64(u64, bytes[1..9])

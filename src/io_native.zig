@@ -1,7 +1,7 @@
 const std = @import("std");
 const mem = std.mem;
 const mpack = @import("./mpack.zig");
-const RPC = @import("./RPC.zig");
+const RPCState = @import("./RPCState.zig");
 
 const Child = std.process.Child;
 
@@ -58,8 +58,7 @@ pub fn dummy_loop(stdout: anytype, allocator: mem.Allocator) !void {
     var buf: [1024]u8 = undefined;
     var lenny = try stdout.read(&buf);
     var decoder = mpack.Decoder{ .data = buf[0..lenny] };
-    //var rpc = RPC.init(allocator);
-    _ = allocator;
+    var rpc = RPCState.init(allocator);
 
     // @compileLog(@sizeOf(@Frame(decodeLoop)));
     // 11920 with fully async readHead()
@@ -74,11 +73,6 @@ pub fn dummy_loop(stdout: anytype, allocator: mem.Allocator) !void {
         lenny = try stdout.read(buf[oldlen..]);
         decoder.data = buf[0 .. oldlen + lenny];
 
-        process(&decoder);
+        try rpc.process(&decoder);
     }
-}
-
-pub fn process(decoder: *mpack.Decoder) void {
-    std.debug.print("haii {}\n", .{decoder.data.len});
-    decoder.data.len = 0;
 }

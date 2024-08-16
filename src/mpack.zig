@@ -49,7 +49,7 @@ pub fn Encoder(comptime WriterType: type) type {
         pub fn putStr(self: Self, val: []const u8) Error!void {
             const len = val.len;
             if (len <= 31) {
-                try self.put(u8, 0xa0 + @as(u8,@intCast(len)));
+                try self.put(u8, 0xa0 + @as(u8, @intCast(len)));
             } else if (len <= 0xFF) {
                 try self.put(u8, 0xd9);
                 try self.put(u8, @intCast(len));
@@ -104,7 +104,6 @@ pub const ValueHead = union(enum) {
 
 pub const Decoder = struct {
     data: []u8,
-    // frame: ?anyframe = null,
 
     bytes: u32 = 0,
     items: usize = 0,
@@ -117,25 +116,12 @@ pub const Decoder = struct {
         InvalidDecodeOperation,
     };
 
-    fn getMoreData(self: *Self) Error!void {
-        const bytes = self.data.len;
-        suspend {
-            self.frame = @frame();
-        }
-        self.frame = null;
-        if (self.data.len <= bytes) {
-            return Error.UnexpectedEOFError;
-        }
+    pub fn copy(self: *Self) Self {
+        return self.*;
     }
 
-    // NB: returned slice is only valid until next getMoreData()!
-    fn readBytes(self: *Self, size: usize) Error![]u8 {
-        while (self.data.len < size) {
-            try self.getMoreData();
-        }
-        const slice = self.data[0..size];
-        self.data = self.data[size..];
-        return slice;
+    pub fn accept(self: *Self, c: Self) void {
+        self.* = c;
     }
 
     // NB: returned slice is only valid until next getMoreData()!
@@ -155,7 +141,7 @@ pub const Decoder = struct {
         }
         const slice = self.maybeReadBytes(@sizeOf(T)) orelse return null;
         var out: T = undefined;
-        @memcpy(&out, slice);
+        @memcpy(std.mem.asBytes(&out), slice);
 
         return std.mem.bigToNative(T, out);
     }
@@ -202,13 +188,16 @@ pub const Decoder = struct {
         self.items = saved;
     }
 
-    pub fn maybeReadHead(self: *Self) Error!?ValueHead {
-        if (debugMode) {
+    pub fn readHead(self: *Self) Error!?ValueHead {
+        if (false) {
             if (self.bytes > 0 or self.items == 0) {
                 return error.InvalidDecodeOperation;
             }
         }
+        const save_data = self.data;
         const first_byte = (self.maybeReadBytes(1) orelse return null)[0];
+        var used_byte = false;
+        defer {if (!used_byte) self.data = save_data;}
 
         const val: ValueHead = switch (first_byte) {
             0x00...0x7f => .{ .Int = first_byte },
@@ -250,31 +239,21 @@ pub const Decoder = struct {
             0xe0...0xff => .{ .Int = @as(i64, @intCast(first_byte)) - 0x100 },
         };
 
+        used_byte = true;
+
         const size = itemSize(val);
-        self.items -= 1;
-        self.bytes += size.bytes;
-        self.items += size.items;
+        if (false) {
+            self.items -= 1;
+            self.bytes += size.bytes;
+            self.items += size.items;
+        }
 
         return val;
     }
 
-    pub fn readHead(self: *Self) Error!ValueHead {
-        while (true) {
-            const oldpos = self.data;
-            // oldpos not restored on error, but it should be fatal anyway
-            const attempt = try self.maybeReadHead();
-            if (attempt) |head| {
-                return head;
-            } else {
-                self.data = oldpos;
-                try self.getMoreData();
-            }
-        }
-    }
-
     // TODO: lol what is generic function? :S
-    pub fn expectArray(self: *Self) Error!u32 {
-        switch (try self.readHead()) {
+    pub fn expectArray(self: *Self) Error!?u32 {
+        switch (try self.readHead() orelse return null) {
             .Array => |size| return size,
             else => return Error.UnexpectedTagError,
         }
@@ -287,8 +266,8 @@ pub const Decoder = struct {
         }
     }
 
-    pub fn expectUInt(self: *Self) Error!u64 {
-        switch (try self.readHead()) {
+    pub fn expectUInt(self: *Self) Error!?u64 {
+        switch (try self.readHead() orelse return null) {
             .UInt => |val| return val,
             .Int => |val| {
                 if (val < 0) {
