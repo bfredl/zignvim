@@ -18,6 +18,7 @@ event: RedrawEvents = undefined,
 
 redraw_events: u64 = 0,
 event_calls: u64 = 0,
+cell_state: CellState = undefined,
 
 ui: struct {
     attr_arena: ArrayList(u8),
@@ -78,18 +79,17 @@ pub fn process(self: *Self, decoder: *mpack.SkipDecoder) !void {
         // too little data
         if (!try decoder.skipData()) return;
 
-        const res = try switch (self.state) {
+        try switch (self.state) {
             .next_msg => self.next_msg(decoder),
             .redraw_event => self.redraw_event(decoder),
             .redraw_call => self.redraw_call(decoder),
-        };
-
-        self.state = res orelse return;
+            .next_cell => self.next_cell(decoder),
+        } orelse return;
     }
     // TODO: EAGAIN!
 }
 
-fn next_msg(self: *Self, base_decoder: *mpack.SkipDecoder) !?State {
+fn next_msg(self: *Self, base_decoder: *mpack.SkipDecoder) !?void {
     var decoder = try base_decoder.inner();
     const tok = try decoder.expectArray() orelse return null;
     if (tok < 3) return error.MalformatedRPCMessage;
@@ -103,7 +103,8 @@ fn next_msg(self: *Self, base_decoder: *mpack.SkipDecoder) !?State {
 
     self.redraw_events = try decoder.expectArray() orelse return null;
     base_decoder.consumed(decoder);
-    return .redraw_event;
+
+    return self.redraw_event(base_decoder);
 }
 
 const RedrawEvents = enum {
@@ -112,10 +113,13 @@ const RedrawEvents = enum {
     grid_line,
 };
 
-fn redraw_event(self: *Self, base_decoder: *mpack.SkipDecoder) !?State {
+fn redraw_event(self: *Self, base_decoder: *mpack.SkipDecoder) !?void {
     if (self.redraw_events == 0) {
-        return .next_msg;
+        // todo: with guaranteed tail calls, we could "return next_msg()" without problems
+        self.state = .next_msg;
+        return;
     }
+    self.state = .redraw_event;
 
     var decoder = try base_decoder.inner();
     const nitems = try decoder.expectArray() orelse return null;
@@ -129,18 +133,21 @@ fn redraw_event(self: *Self, base_decoder: *mpack.SkipDecoder) !?State {
 
     const event = stringToEnum(RedrawEvents, name) orelse {
         base_decoder.toSkip(nitems - 1);
-        return .redraw_event;
+        return;
     };
 
     self.event_calls = nitems - 1;
     self.event = event;
-    return .redraw_call;
+    return redraw_call(self, base_decoder);
 }
 
-fn redraw_call(self: *Self, base_decoder: *mpack.SkipDecoder) !?State {
+fn redraw_call(self: *Self, base_decoder: *mpack.SkipDecoder) !?void {
     if (self.event_calls == 0) {
-        return .redraw_event;
+        // todo: with guaranteed tail calls, we could "return redraw_event()" without problems
+        self.state = .redraw_event;
+        return;
     }
+    self.state = .redraw_call;
     const status = switch (self.event) {
         .hl_attr_define => try self.hl_attr_define(base_decoder),
         .grid_resize => try self.grid_resize(base_decoder),
@@ -148,6 +155,7 @@ fn redraw_call(self: *Self, base_decoder: *mpack.SkipDecoder) !?State {
     };
 
     if (status) |next| {
+        // TODO: if this becomes a loop, check if we can process toSkip inline
         self.event_calls -= 1;
         return next;
     } else {
@@ -155,7 +163,7 @@ fn redraw_call(self: *Self, base_decoder: *mpack.SkipDecoder) !?State {
     }
 }
 
-fn hl_attr_define(self: *Self, base_decoder: *mpack.SkipDecoder) !?State {
+fn hl_attr_define(self: *Self, base_decoder: *mpack.SkipDecoder) !?void {
     var decoder = try base_decoder.inner();
 
     const nsize = try decoder.expectArray() orelse return null;
@@ -214,10 +222,10 @@ fn hl_attr_define(self: *Self, base_decoder: *mpack.SkipDecoder) !?State {
 
     base_decoder.consumed(decoder);
     base_decoder.toSkip(nsize - 2);
-    return .redraw_call;
+    return void{};
 }
 
-fn grid_resize(self: *Self, base_decoder: *mpack.SkipDecoder) !?State {
+fn grid_resize(self: *Self, base_decoder: *mpack.SkipDecoder) !?void {
     var decoder = try base_decoder.inner();
     const iarg = try decoder.expectArray() orelse return null;
     const grid_id = try decoder.expectUInt() orelse return null;
@@ -236,7 +244,7 @@ fn grid_resize(self: *Self, base_decoder: *mpack.SkipDecoder) !?State {
 
     dbg("REZISED {} x {}\n", .{ grid.cols, grid.rows });
 
-    return .redraw_call;
+    return void{};
 }
 
 const CellState = struct {
@@ -248,7 +256,7 @@ const CellState = struct {
     attr_id: u32,
 };
 
-fn grid_line(self: *Self, base_decoder: *mpack.SkipDecoder) !?State {
+fn grid_line(self: *Self, base_decoder: *mpack.SkipDecoder) !?void {
     var decoder = try base_decoder.inner();
     const iarg = try decoder.expectArray() orelse return null;
     if (iarg < 4) return error.MalformatedRPCMessage;
@@ -258,41 +266,47 @@ fn grid_line(self: *Self, base_decoder: *mpack.SkipDecoder) !?State {
     const col = try decoder.expectUInt() orelse return null;
     const ncells = try decoder.expectArray() orelse return null;
 
+    dbg("with line: {} {} has cells {} and extra {}\n", .{ row, col, ncells, iarg - 4 });
+
     self.cell_state = .{
         .event_extra_args = iarg - 4,
-        .grid = &self.grid[grid_id - 1],
-        .row = row,
-        .col = col,
+        .grid = &self.ui.grid[grid_id - 1],
+        .row = @intCast(row),
+        .col = @intCast(col),
         .ncells = ncells,
         .attr_id = 0,
     };
     base_decoder.consumed(decoder);
 
-    return .next_cell;
+    return self.next_cell(base_decoder);
 }
 
-fn next_cell(self: *Self, base_decoder: *mpack.SkipDecoder) !?State {
+fn next_cell(self: *Self, base_decoder: *mpack.SkipDecoder) !?void {
     const s = &self.cell_state;
+    self.state = .next_cell;
 
     while (s.ncells > 0) {
         var decoder = try base_decoder.inner();
 
-        const nsize = try decoder.expectArray();
-        const str = try decoder.expectString();
+        const nsize = try decoder.expectArray() orelse return null;
+        const str = try decoder.expectString() orelse return null;
         var used: u8 = 1;
         var repeat: u64 = 1;
         if (nsize >= 2) {
-            s.attr_id = @intCast(try decoder.expectUInt());
+            s.attr_id = @intCast(try decoder.expectUInt() orelse return null);
             used = 2;
             if (nsize >= 3) {
-                repeat = try decoder.expectUInt();
+                repeat = try decoder.expectUInt() orelse return null;
                 used = 3;
             }
         }
-        dbg("used {} to get str {} attr={} x {}\n", .{ used, str, s.attr_id, repeat });
+        dbg("used {} out of {} to get str {s} attr={} x {}\n", .{ used, nsize, str, s.attr_id, repeat });
 
+        s.ncells -= 1;
         base_decoder.consumed(decoder);
     }
 
-    return .redraw_call;
+    base_decoder.toSkip(s.event_extra_args);
+    self.state = .redraw_call;
+    return void{};
 }
