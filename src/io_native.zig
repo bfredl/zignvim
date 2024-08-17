@@ -79,6 +79,14 @@ pub fn dummy_loop(stdout: anytype, allocator: mem.Allocator) !void {
         const lenny = try stdout.read(buf[oldlen..]);
         decoder.data = buf[0 .. oldlen + lenny];
 
-        try rpc.process(&decoder);
+        rpc.process(&decoder) catch |err| {
+            switch (err) {
+                error.EOFError => {
+                    std.debug.print("!!interrupted. {} bytes left in state {}\n", .{ decoder.data.len, rpc.state });
+                    continue;
+                },
+                else => |e| return e,
+            }
+        };
     }
 }
