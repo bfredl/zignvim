@@ -100,6 +100,17 @@ pub const ValueHead = union(enum) {
     Str: u32,
     Bin: u32,
     Ext: ExtHead,
+
+    fn itemSize(head: ValueHead) struct { bytes: u32, items: usize } {
+        return switch (head) {
+            .Str => |size| .{ .bytes = size, .items = 0 },
+            .Bin => |size| .{ .bytes = size, .items = 0 },
+            .Ext => |ext| .{ .bytes = ext.size, .items = 0 },
+            .Array => |size| .{ .bytes = 0, .items = size },
+            .Map => |size| .{ .bytes = 0, .items = 2 * size },
+            else => .{ .bytes = 0, .items = 0 },
+        };
+    }
 };
 
 pub const MpackError = error{
@@ -208,8 +219,8 @@ pub const InnerDecoder = struct {
         }
     }
 
-    pub fn expectMap(self: *Self) MpackError!u32 {
-        switch (try self.readHead()) {
+    pub fn expectMap(self: *Self) MpackError!?u32 {
+        switch (try self.readHead() orelse return null) {
             .Map => |size| return size,
             else => return error.UnexpectedTagError,
         }
@@ -242,6 +253,28 @@ pub const InnerDecoder = struct {
         self.data = self.data[size..];
         return str;
     }
+
+    pub fn skipAny(self: *Self, nitems: u64) MpackError!?void {
+        var bytes: u64 = 0;
+        var items: u64 = nitems;
+        while (bytes > 0 or items > 0) {
+            if (self.data.len == 0) {
+                return null;
+            }
+            if (bytes > 0) {
+                const skip = @min(bytes, self.data.len);
+                self.data = self.data[skip..];
+                bytes -= skip;
+            } else if (items > 0) {
+                const head = try self.readHead() orelse return null;
+                const size = head.itemSize();
+                items += size.items;
+                items -= 1;
+                bytes += size.bytes;
+            }
+        }
+        return void{};
+    }
 };
 
 pub const SkipDecoder = struct {
@@ -268,18 +301,7 @@ pub const SkipDecoder = struct {
 
     const Self = @This();
 
-    // TODO: these for a skipDecoder wrapper
     const debugMode = true;
-    fn itemSize(head: ValueHead) struct { bytes: u32, items: usize } {
-        return switch (head) {
-            .Str => |size| .{ .bytes = size, .items = 0 },
-            .Bin => |size| .{ .bytes = size, .items = 0 },
-            .Ext => |ext| .{ .bytes = ext.size, .items = 0 },
-            .Array => |size| .{ .bytes = 0, .items = size },
-            .Map => |size| .{ .bytes = 0, .items = 2 * size },
-            else => .{ .bytes = 0, .items = 0 },
-        };
-    }
 
     pub fn skipData(self: *Self) MpackError!bool {
         while (self.bytes > 0 or self.items > 0) {
@@ -294,7 +316,7 @@ pub const SkipDecoder = struct {
                 var d = self.rawInner();
                 const head = try d.readHead() orelse return false;
                 self.consumed(d);
-                const size = itemSize(head);
+                const size = head.itemSize();
                 self.items += size.items;
                 self.items -= 1;
                 self.bytes += size.bytes;
