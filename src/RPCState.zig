@@ -29,8 +29,6 @@ ui: struct {
     default_colors: struct { fg: u32, bg: u32, sp: u32 } = undefined,
 
     grid: [1]Grid,
-
-    attr_id: u16 = 0,
 },
 
 const AttrOffset = struct { start: u32, end: u32 };
@@ -44,7 +42,7 @@ const charsize = 8;
 
 const Cell = struct {
     char: [charsize]u8,
-    attr_id: u16,
+    attr_id: u32,
 };
 
 const RGB = packed struct { b: u8, g: u8, r: u8, a: u8 };
@@ -108,12 +106,6 @@ fn next_msg(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     return self.redraw_event(base_decoder);
 }
 
-const RedrawEvents = enum {
-    hl_attr_define,
-    grid_resize,
-    grid_line,
-};
-
 fn redraw_event(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     if (self.redraw_events == 0) {
         // todo: with guaranteed tail calls, we could "return next_msg()" without problems
@@ -142,6 +134,14 @@ fn redraw_event(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     return redraw_call(self, base_decoder);
 }
 
+const RedrawEvents = enum {
+    hl_attr_define,
+    grid_resize,
+    grid_clear,
+    grid_line,
+    grid_cursor_goto,
+};
+
 fn redraw_call(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     if (self.event_calls == 0) {
         // todo: with guaranteed tail calls, we could "return redraw_event()" without problems
@@ -152,7 +152,9 @@ fn redraw_call(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     switch (self.event) {
         .hl_attr_define => try self.hl_attr_define(base_decoder),
         .grid_resize => try self.grid_resize(base_decoder),
+        .grid_clear => try self.grid_clear(base_decoder),
         .grid_line => try self.grid_line(base_decoder),
+        .grid_cursor_goto => try self.grid_cursor_goto(base_decoder),
     }
 }
 
@@ -216,7 +218,6 @@ fn hl_attr_define(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     base_decoder.consumed(decoder);
     base_decoder.toSkip(nsize - 2);
     self.event_calls -= 1;
-    return;
 }
 
 fn grid_resize(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
@@ -238,8 +239,42 @@ fn grid_resize(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     self.event_calls -= 1;
 
     dbg("REZISED {} x {}\n", .{ grid.cols, grid.rows });
+}
 
-    return;
+fn grid_clear(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
+    var decoder = try base_decoder.inner();
+    const iarg = try decoder.expectArray();
+    const grid_id = try decoder.expectUInt();
+    if (grid_id != 1) {
+        @panic("get out!");
+    }
+
+    const grid = &self.ui.grid[grid_id - 1];
+    var char: [charsize]u8 = undefined;
+    //char[0..2] = .{ ' ', 0 };
+    char[0] = ' ';
+    char[1] = 0;
+
+    @memset(grid.cell.items, .{ .char = char, .attr_id = 0 });
+
+    base_decoder.consumed(decoder);
+    base_decoder.toSkip(iarg - 1); // TODO: we want decoder.pop() back!
+    self.event_calls -= 1;
+}
+
+fn grid_cursor_goto(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
+    var decoder = try base_decoder.inner();
+    const iarg = try decoder.expectArray();
+    if (iarg < 3) return error.MalformatedRPCMessage;
+    const grid_id: u32 = @intCast(try decoder.expectUInt());
+    const row: u16 = @intCast(try decoder.expectUInt());
+    const col: u16 = @intCast(try decoder.expectUInt());
+
+    self.ui.cursor = .{ .grid = grid_id, .row = row, .col = col };
+
+    base_decoder.consumed(decoder);
+    base_decoder.toSkip(iarg - 3);
+    self.event_calls -= 1;
 }
 
 const CellState = struct {
@@ -298,7 +333,21 @@ fn next_cell(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
                 used = 3;
             }
         }
-        _ = str;
+
+        var char: [charsize]u8 = undefined;
+        for (0..@min(charsize, str.len)) |i| {
+            char[i] = str[i];
+        }
+        if (str.len < 8) {
+            char[str.len] = 0;
+        }
+        const basepos = s.row * s.grid.cols;
+        while (repeat > 0) : (repeat -= 1) {
+            s.grid.cell.items[basepos + s.col] = .{ .char = char, .attr_id = s.attr_id };
+            s.col += 1;
+            //dbg("{s}", .{str});
+            // self.writer.writeAll(str) catch return RPCError.IOError;
+        }
         // dbg("used {} out of {} to get str {s} attr={} x {}\n", .{ used, nsize, str, s.attr_id, repeat });
 
         s.ncells -= 1;
