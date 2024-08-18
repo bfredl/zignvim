@@ -154,8 +154,6 @@ fn redraw_call(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
         .grid_resize => try self.grid_resize(base_decoder),
         .grid_line => try self.grid_line(base_decoder),
     }
-
-    self.event_calls -= 1;
 }
 
 fn hl_attr_define(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
@@ -217,6 +215,7 @@ fn hl_attr_define(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
 
     base_decoder.consumed(decoder);
     base_decoder.toSkip(nsize - 2);
+    self.event_calls -= 1;
     return;
 }
 
@@ -236,6 +235,7 @@ fn grid_resize(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
 
     base_decoder.consumed(decoder);
     base_decoder.toSkip(iarg - 3);
+    self.event_calls -= 1;
 
     dbg("REZISED {} x {}\n", .{ grid.cols, grid.rows });
 
@@ -252,30 +252,31 @@ const CellState = struct {
 };
 
 fn grid_line(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
-    var decoder = try base_decoder.inner();
-    const iarg = try decoder.expectArray();
-    if (iarg < 4) return error.MalformatedRPCMessage;
-    const grid_id = try decoder.expectUInt();
+    while (self.event_calls > 0) {
+        var decoder = try base_decoder.inner();
+        const iarg = try decoder.expectArray();
+        if (iarg < 4) return error.MalformatedRPCMessage;
+        const grid_id = try decoder.expectUInt();
 
-    const row = try decoder.expectUInt();
-    const col = try decoder.expectUInt();
-    const ncells = try decoder.expectArray();
+        const row = try decoder.expectUInt();
+        const col = try decoder.expectUInt();
+        const ncells = try decoder.expectArray();
 
-    dbg("with line: {} {} has cells {} and extra {}\n", .{ row, col, ncells, iarg - 4 });
+        dbg("with line: {} {} has cells {} and extra {}\n", .{ row, col, ncells, iarg - 4 });
 
-    self.cell_state = .{
-        .event_extra_args = iarg - 4,
-        .grid = &self.ui.grid[grid_id - 1],
-        .row = @intCast(row),
-        .col = @intCast(col),
-        .ncells = ncells,
-        .attr_id = 0,
-    };
-    base_decoder.consumed(decoder);
+        self.cell_state = .{
+            .event_extra_args = iarg - 4,
+            .grid = &self.ui.grid[grid_id - 1],
+            .row = @intCast(row),
+            .col = @intCast(col),
+            .ncells = ncells,
+            .attr_id = 0,
+        };
+        base_decoder.consumed(decoder);
+        self.event_calls -= 1;
 
-    // TODO: fix this (might miss "self.event_calls -= 1")
-    //return self.next_cell(base_decoder);
-    self.state = .next_cell;
+        try self.next_cell(base_decoder);
+    }
 }
 
 fn next_cell(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
@@ -305,6 +306,6 @@ fn next_cell(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     }
 
     base_decoder.toSkip(s.event_extra_args);
+    try base_decoder.skipData();
     self.state = .redraw_call;
-    return;
 }
