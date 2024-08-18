@@ -140,6 +140,7 @@ const RedrawEvents = enum {
     grid_clear,
     grid_line,
     grid_cursor_goto,
+    flush,
 };
 
 fn redraw_call(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
@@ -155,6 +156,7 @@ fn redraw_call(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
         .grid_clear => try self.grid_clear(base_decoder),
         .grid_line => try self.grid_line(base_decoder),
         .grid_cursor_goto => try self.grid_cursor_goto(base_decoder),
+        .flush => try self.flush(base_decoder),
     }
 }
 
@@ -275,6 +277,33 @@ fn grid_cursor_goto(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     base_decoder.consumed(decoder);
     base_decoder.toSkip(iarg - 3);
     self.event_calls -= 1;
+}
+
+fn flush(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
+    base_decoder.toSkip(1);
+    self.event_calls -= 1;
+
+    var attr_id: u32 = 0;
+    dbg("SCREEN begin ======\n", .{});
+    const grid = self.ui.grid[0];
+    for (0..grid.rows) |row| {
+        const basepos = row * grid.cols;
+        for (0..grid.cols) |col| {
+            const cell = grid.cell.items[basepos + col];
+
+            if (cell.attr_id != attr_id) {
+                attr_id = cell.attr_id;
+                const slice = if (attr_id > 0) theslice: {
+                    const islice = self.ui.attr_off.items[attr_id];
+                    break :theslice self.ui.attr_arena.items[islice.start..islice.end];
+                } else "\x1b[0m";
+                dbg("{s}", .{slice});
+            }
+            dbg("{s}", .{cell.char[0 .. std.mem.indexOfScalar(u8, &cell.char, 0) orelse charsize]});
+        }
+        dbg("\n", .{});
+    }
+    dbg("SCREEN end ======\n", .{});
 }
 
 const CellState = struct {
