@@ -168,6 +168,24 @@ fn flush(self: *Self) !void {
         const surface = c.gtk_native_get_surface(g.g_cast(c.GtkNative, c.gtk_native_get_type(), self.window));
         self.cs = c.gdk_surface_create_similar_surface(surface, c.CAIRO_CONTENT_COLOR, width, height);
     }
+
+    for (0..grid.rows) |row| {
+        const basepos = row * grid.cols;
+        var cur_attr: u32 = 0xfffffff;
+        var begin: usize = 0;
+        dbg("SEGMENTS {}: ", .{row});
+        for (0..grid.cols) |col| {
+            const cell = grid.cell.items[basepos + col];
+            if (col == 0) {
+                cur_attr = cell.attr_id;
+            } else if (cell.attr_id != cur_attr) {
+                cur_attr = cell.attr_id;
+                dbg("{}-{}, ", .{ begin, col });
+                begin = col;
+            }
+        }
+        dbg("{}-{}\n", .{ begin, grid.cols }); // special case, inconvenient!
+    }
 }
 
 fn pango_pixels_ceil(u: c_int) c_int {
