@@ -140,6 +140,7 @@ const RedrawEvents = enum {
     grid_clear,
     grid_line,
     grid_cursor_goto,
+    default_colors_set,
     flush,
 };
 
@@ -156,6 +157,7 @@ fn redraw_call(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
         .grid_clear => try self.grid_clear(base_decoder),
         .grid_line => try self.grid_line(base_decoder),
         .grid_cursor_goto => try self.grid_cursor_goto(base_decoder),
+        .default_colors_set => try self.default_colors_set(base_decoder),
         .flush => try self.flush(base_decoder),
     }
 }
@@ -279,10 +281,29 @@ fn grid_cursor_goto(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     self.event_calls -= 1;
 }
 
+fn default_colors_set(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
+    var decoder = try base_decoder.inner();
+    const iarg = try decoder.expectArray();
+    if (iarg < 3) return error.MalformatedRPCMessage;
+    const fg: u32 = @intCast(try decoder.expectUInt());
+    const bg: u32 = @intCast(try decoder.expectUInt());
+    const sp: u32 = @intCast(try decoder.expectUInt());
+
+    self.ui.default_colors = .{ .fg = fg, .bg = bg, .sp = sp };
+
+    base_decoder.consumed(decoder);
+    base_decoder.toSkip(iarg - 3);
+    self.event_calls -= 1;
+}
+
 fn flush(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     base_decoder.toSkip(1);
     self.event_calls -= 1;
 
+    return error.FlushCondition;
+}
+
+pub fn dump_grid(self: *Self) void {
     var attr_id: u32 = 0;
     dbg("SCREEN begin ======\n", .{});
     const grid = self.ui.grid[0];
@@ -326,7 +347,7 @@ fn grid_line(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
         const col = try decoder.expectUInt();
         const ncells = try decoder.expectArray();
 
-        dbg("with line: {} {} has cells {} and extra {}\n", .{ row, col, ncells, iarg - 4 });
+        // dbg("with line: {} {} has cells {} and extra {}\n", .{ row, col, ncells, iarg - 4 });
 
         self.cell_state = .{
             .event_extra_args = iarg - 4,

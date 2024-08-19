@@ -79,14 +79,21 @@ pub fn dummy_loop(stdout: anytype, allocator: mem.Allocator) !void {
         const lenny = try stdout.read(buf[oldlen..]);
         decoder.data = buf[0 .. oldlen + lenny];
 
-        rpc.process(&decoder) catch |err| {
-            switch (err) {
-                error.EOFError => {
-                    std.debug.print("!!interrupted. {} bytes left in state {}\n", .{ decoder.data.len, rpc.state });
-                    continue;
-                },
-                else => |e| return e,
-            }
-        };
+        while (decoder.data.len > 0) {
+            rpc.process(&decoder) catch |err| {
+                switch (err) {
+                    error.EOFError => {
+                        std.debug.print("!!interrupted. {} bytes left in state {}\n", .{ decoder.data.len, rpc.state });
+                        break; // continue outer loop, try read more data
+                    },
+                    error.FlushCondition => {
+                        std.debug.print("!!flushed. but {} bytes left in state {}\n", .{ decoder.data.len, rpc.state });
+                        rpc.dump_grid();
+                        continue; // there might be more data after the flush
+                    },
+                    else => |e| return e,
+                }
+            };
+        }
     }
 }
