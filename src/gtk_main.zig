@@ -17,12 +17,12 @@ const io_mode = std.io.Mode.evented;
 
 gpa: std.heap.GeneralPurposeAllocator(.{}),
 
-child: std.ChildProcess = undefined,
+child: std.process.Child = undefined,
 enc_buf: ArrayList(u8) = undefined,
 key_buf: ArrayList(u8) = undefined,
 
 buf: [1024]u8 = undefined,
-decoder: mpack.Decoder = undefined,
+decoder: mpack.SkipDecoder = undefined,
 rpc: RPCState = undefined,
 
 window: *c.GtkWindow = undefined,
@@ -113,7 +113,7 @@ fn on_stdout(_: ?*c.GIOChannel, cond: c.GIOCondition, data: c.gpointer) callconv
     const oldlen = self.decoder.data.len;
     if (oldlen > 0 and self.decoder.data.ptr != &self.buf) {
         // TODO: avoid move if remaining space is plenty (like > 900)
-        mem.copy(u8, &self.buf, self.decoder.data);
+        mem.copyForwards(u8, &self.buf, self.decoder.data);
     }
     var stdout = &self.child.stdout.?;
     const lenny = stdout.read(self.buf[oldlen..]) catch @panic("call for help");
@@ -128,10 +128,10 @@ fn on_stdout(_: ?*c.GIOChannel, cond: c.GIOCondition, data: c.gpointer) callconv
                 },
                 error.FlushCondition => {
                     std.debug.print("!!flushed. but {} bytes left in state {}\n", .{ self.decoder.data.len, self.rpc.state });
-                    self.flush();
+                    self.flush() catch @panic("NotLikeThis");
                     continue; // there might be more data after the flush
                 },
-                else => |e| return e,
+                else => @panic("go crazy yea"),
             }
         };
     }
@@ -141,9 +141,9 @@ fn on_stdout(_: ?*c.GIOChannel, cond: c.GIOCondition, data: c.gpointer) callconv
 
 fn flush(self: *Self) !void {
     dbg("le flush\n", .{});
-    try self.rpc.dumpGrid();
+    self.rpc.dump_grid();
 
-    const grid = &self.rpc.grid[0];
+    const grid = &self.rpc.ui.grid[0];
 
     // TODO: the right condition for "font[size] changed"
     if (self.cell_height == 0) {
@@ -208,15 +208,15 @@ fn init(self: *Self) !void {
     const allocator = self.gpa.allocator();
 
     var the_fd: ?i32 = null;
-    if (true) {
-        the_fd = try os.dup(0);
+    if (false) {
+        the_fd = try std.posix.dup(0);
     }
 
     self.child = try io.spawn(allocator, the_fd);
     self.enc_buf = ArrayList(u8).init(allocator);
     self.key_buf = ArrayList(u8).init(allocator);
 
-    self.decoder = mpack.Decoder{ .data = self.buf[0..0] };
+    self.decoder = mpack.SkipDecoder{ .data = self.buf[0..0] };
     self.rpc = RPCState.init(allocator);
 
     var encoder = mpack.encoder(self.enc_buf.writer());
@@ -249,14 +249,14 @@ fn activate(app: *c.GtkApplication, data: c.gpointer) callconv(.C) void {
     // c.gtk_event_controller_key_set_im_context(g.g_cast(c.GtkEventControllerKey, c.gtk_event_controller_key_get_type(), key_ev), im_context);
     c.gtk_im_context_set_client_widget(im_context, self.da);
     c.gtk_im_context_set_use_preedit(im_context, c.FALSE);
-    _ = g.g_signal_connect(key_ev, "key-pressed", g.G_CALLBACK(key_pressed), self);
-    _ = g.g_signal_connect(im_context, "commit", g.G_CALLBACK(commit), self);
+    _ = g.g_signal_connect(key_ev, "key-pressed", g.G_CALLBACK(&key_pressed), self);
+    _ = g.g_signal_connect(im_context, "commit", g.G_CALLBACK(&commit), self);
 
     const focus_ev = c.gtk_event_controller_focus_new();
     c.gtk_widget_add_controller(window, focus_ev);
     // TODO: this does not work! (when ALT-TAB)
-    _ = g.g_signal_connect(focus_ev, "enter", g.G_CALLBACK(focus_enter), im_context);
-    _ = g.g_signal_connect(focus_ev, "leave", g.G_CALLBACK(focus_leave), im_context);
+    _ = g.g_signal_connect(focus_ev, "enter", g.G_CALLBACK(&focus_enter), im_context);
+    _ = g.g_signal_connect(focus_ev, "leave", g.G_CALLBACK(&focus_leave), im_context);
     c.gtk_widget_set_focusable(window, 1);
     c.gtk_widget_set_focusable(self.da, 1);
 
@@ -271,7 +271,7 @@ pub fn main() u8 {
     const app: *c.GtkApplication = c.gtk_application_new("io.github.bfredl.zignvim", c.G_APPLICATION_FLAGS_NONE);
     defer c.g_object_unref(@ptrCast(app));
 
-    _ = g.g_signal_connect(app, "activate", g.G_CALLBACK(activate), &self);
+    _ = g.g_signal_connect(app, "activate", g.G_CALLBACK(&activate), &self);
     const status = c.g_application_run(
         g.g_cast(c.GApplication, c.g_application_get_type(), app),
         @intCast(std.os.argv.len),
