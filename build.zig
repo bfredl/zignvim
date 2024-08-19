@@ -7,13 +7,26 @@ pub fn build(b: *std.Build) void {
     const io_test = b.step("io_test", "fooka amnitel");
     const io_test_exe = b.addExecutable(.{
         .name = "io_test",
-        .root_source_file = b.path( "src/io_test.zig" ),
+        .root_source_file = b.path("src/io_test.zig"),
         .optimize = opt,
         .target = t,
     });
     b.installArtifact(io_test_exe);
     const run_cmd = b.addRunArtifact(io_test_exe);
     io_test.dependOn(&run_cmd.step);
+
+    const gtk_test = b.step("gtk_test", "visual representation");
+    const exe_gtk = b.addExecutable(.{
+        .name = "zignvim_gtk",
+        .root_source_file = b.path("src/gtk_main.zig"),
+        .optimize = opt,
+        .target = t,
+    });
+    exe_gtk.linkLibC();
+    exe_gtk.linkSystemLibrary("gtk4");
+    b.installArtifact(exe_gtk);
+    const gtk_run_cmd = b.addRunArtifact(exe_gtk);
+    gtk_test.dependOn(&gtk_run_cmd.step);
 
     if (false) {
         const mode = b.standardReleaseOptions();
@@ -26,12 +39,6 @@ pub fn build(b: *std.Build) void {
         exe_uv.linkSystemLibrary("uv");
         exe_uv.setBuildMode(mode);
         // exe_uv.install();
-
-        const exe_gtk = b.addExecutable("gtk_main", "src/gtk_main.zig");
-        exe_gtk.linkLibC();
-        exe_gtk.linkSystemLibrary("gtk4");
-        exe_gtk.setBuildMode(mode);
-        exe_gtk.install();
 
         const exe = b.addExecutable("iotest", "src/io_test.zig");
         exe.setBuildMode(mode);
