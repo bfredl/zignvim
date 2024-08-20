@@ -157,7 +157,7 @@ fn flush(self: *Self) !void {
         const width: c_int = @intCast(self.cols * self.cell_width);
         const height: c_int = @intCast(self.rows * self.cell_height);
 
-        dbg("LE METRICS {} {}", .{ width, height });
+        dbg("LE METRICS {} {}\n", .{ width, height });
 
         c.gtk_drawing_area_set_content_width(g.GTK_DRAWING_AREA(self.da), width);
         c.gtk_drawing_area_set_content_height(g.GTK_DRAWING_AREA(self.da), height);
@@ -169,22 +169,36 @@ fn flush(self: *Self) !void {
         self.cs = c.gdk_surface_create_similar_surface(surface, c.CAIRO_CONTENT_COLOR, width, height);
     }
 
+    const gc = c.cairo_create(self.cs);
+
     for (0..grid.rows) |row| {
         const basepos = row * grid.cols;
-        var cur_attr: u32 = 0xfffffff;
+        var cur_attr: u32 = grid.cell.items[basepos].attr_id;
         var begin: usize = 0;
         dbg("SEGMENTS {}: ", .{row});
-        for (0..grid.cols) |col| {
-            const cell = grid.cell.items[basepos + col];
-            if (col == 0) {
-                cur_attr = cell.attr_id;
-            } else if (cell.attr_id != cur_attr) {
-                cur_attr = cell.attr_id;
+        const y: c_int = @intCast(row * self.cell_height);
+        for (1..grid.cols + 1) |col| {
+            const new = if (col < grid.cols) new: {
+                const last_attr = cur_attr;
+                cur_attr = grid.cell.items[basepos + col].attr_id;
+                break :new cur_attr != last_attr;
+            } else true;
+
+            if (new) {
                 dbg("{}-{}, ", .{ begin, col });
                 begin = col;
+
+                c.cairo_save(gc);
+                c.gdk_cairo_rectangle(gc, &.{
+                    .x = @intCast(col),
+                    .y = y,
+                    .width = @intCast(self.cell_width * (col - begin)),
+                    .height = @intCast(self.cell_height),
+                });
+                c.cairo_restore(gc);
             }
         }
-        dbg("{}-{}\n", .{ begin, grid.cols }); // special case, inconvenient!
+        dbg("\n", .{});
     }
 }
 
