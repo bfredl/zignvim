@@ -10,6 +10,10 @@ pub fn GTK_WINDOW(value: anytype) *c.GtkWindow {
     return g_cast(c.GtkWindow, c.gtk_window_get_type(), value);
 }
 
+pub fn GTK_WIDGET(value: anytype) *c.GtkWidget {
+    return g_cast(c.GtkWidget, c.gtk_widget_get_type(), value);
+}
+
 pub fn GTK_BOX(value: anytype) *c.GtkBox {
     return g_cast(c.GtkBox, c.gtk_box_get_type(), value);
 }

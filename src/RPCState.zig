@@ -22,16 +22,21 @@ cell_state: CellState = undefined,
 
 ui: struct {
     attr_arena: ArrayList(u8),
-    attr_off: ArrayList(AttrOffset),
-    writer: @TypeOf(std.io.getStdOut().writer()),
+    attr: ArrayList(Attr),
 
     cursor: struct { grid: u32, row: u16, col: u16 } = undefined,
-    default_colors: struct { fg: u32, bg: u32, sp: u32 } = undefined,
+    default_colors: struct { fg: u24, bg: u24, sp: u24 } = undefined,
 
     grid: [1]Grid,
 },
 
-const AttrOffset = struct { start: u32, end: u32 };
+const Attr = struct {
+    start: u32,
+    end: u32,
+    fg: ?u24,
+    bg: ?u24,
+};
+
 const Grid = struct {
     rows: u16,
     cols: u16,
@@ -45,7 +50,7 @@ const Cell = struct {
     attr_id: u32,
 };
 
-const RGB = packed struct { b: u8, g: u8, r: u8, a: u8 };
+pub const RGB = packed struct { b: u8, g: u8, r: u8 };
 
 fn doColors(w: anytype, fg: bool, rgb: RGB) !void {
     const kod = if (fg) "3" else "4";
@@ -54,17 +59,19 @@ fn doColors(w: anytype, fg: bool, rgb: RGB) !void {
 
 fn putAt(array_list: anytype, index: usize, item: anytype) !void {
     if (array_list.items.len < index + 1) {
+        // TODO: safe fill with attr[0] values!
         try array_list.resize(index + 1);
     }
     array_list.items[index] = item;
 }
 
-pub fn init(allocator: mem.Allocator) Self {
+pub fn init(allocator: mem.Allocator) !Self {
+    var attr = ArrayList(Attr).init(allocator);
+    try attr.append(Attr{ .start = 0, .end = 0, .fg = null, .bg = null });
     return .{
         .ui = .{
             .attr_arena = ArrayList(u8).init(allocator),
-            .attr_off = ArrayList(AttrOffset).init(allocator),
-            .writer = std.io.getStdOut().writer(),
+            .attr = ArrayList(Attr).init(allocator),
             .grid = .{.{ .rows = 0, .cols = 0, .cell = ArrayList(Cell).init(allocator) }},
         },
     };
@@ -169,8 +176,8 @@ fn hl_attr_define(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     const id = try decoder.expectUInt();
     const rgb_attrs = try decoder.expectMap();
     dbg("ATTEN: {} {}", .{ id, rgb_attrs });
-    var fg: ?u32 = null;
-    var bg: ?u32 = null;
+    var fg: ?u24 = null;
+    var bg: ?u24 = null;
     var bold = false;
     var j: u32 = 0;
     while (j < rgb_attrs) : (j += 1) {
@@ -216,7 +223,7 @@ fn hl_attr_define(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
         try w.writeAll("\x1b[1m");
     }
     const endpos: u32 = @intCast(self.ui.attr_arena.items.len);
-    try putAt(&self.ui.attr_off, id, .{ .start = pos, .end = endpos });
+    try putAt(&self.ui.attr, id, .{ .start = pos, .end = endpos, .fg = fg, .bg = bg });
     dbg("\n", .{});
 
     base_decoder.consumed(decoder);
@@ -285,9 +292,9 @@ fn default_colors_set(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     var decoder = try base_decoder.inner();
     const iarg = try decoder.expectArray();
     if (iarg < 3) return error.MalformatedRPCMessage;
-    const fg: u32 = @intCast(try decoder.expectUInt());
-    const bg: u32 = @intCast(try decoder.expectUInt());
-    const sp: u32 = @intCast(try decoder.expectUInt());
+    const fg: u24 = @intCast(try decoder.expectUInt());
+    const bg: u24 = @intCast(try decoder.expectUInt());
+    const sp: u24 = @intCast(try decoder.expectUInt());
 
     self.ui.default_colors = .{ .fg = fg, .bg = bg, .sp = sp };
 
@@ -315,7 +322,7 @@ pub fn dump_grid(self: *Self) void {
             if (cell.attr_id != attr_id) {
                 attr_id = cell.attr_id;
                 const slice = if (attr_id > 0) theslice: {
-                    const islice = self.ui.attr_off.items[attr_id];
+                    const islice = self.ui.attr.items[attr_id];
                     break :theslice self.ui.attr_arena.items[islice.start..islice.end];
                 } else "\x1b[0m";
                 dbg("{s}", .{slice});

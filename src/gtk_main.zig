@@ -6,6 +6,8 @@ const RPCState = @import("RPCState.zig");
 const mem = std.mem;
 const os = std.os;
 
+const RGB = RPCState.RGB;
+
 const ArrayList = std.ArrayList;
 const mpack = @import("./mpack.zig");
 
@@ -42,7 +44,7 @@ fn get_self(data: c.gpointer) *Self {
 
 fn key_pressed(_: *c.GtkEventControllerKey, keyval: c.guint, keycode: c.guint, mod: c.GdkModifierType, data: c.gpointer) callconv(.C) void {
     _ = keycode;
-    var self = get_self(data);
+    const self = get_self(data);
     self.onKeyPress(keyval, mod) catch @panic("We live inside of a dream!");
 }
 
@@ -139,6 +141,18 @@ fn on_stdout(_: ?*c.GIOChannel, cond: c.GIOCondition, data: c.gpointer) callconv
     return 1;
 }
 
+fn redraw_area(_: ?*c.GtkDrawingArea, cr_in: ?*c.cairo_t, width: c_int, height: c_int, data: c.gpointer) callconv(.C) void {
+    const self = get_self(data);
+    const cs = self.cs orelse return;
+    const cr = cr_in orelse return;
+    _ = width;
+    _ = height;
+
+    c.cairo_surface_flush(cs);
+    c.cairo_set_source_surface(cr, cs, 0, 0);
+    c.cairo_paint(cr);
+}
+
 fn flush(self: *Self) !void {
     dbg("le flush\n", .{});
     self.rpc.dump_grid();
@@ -169,7 +183,10 @@ fn flush(self: *Self) !void {
         self.cs = c.gdk_surface_create_similar_surface(surface, c.CAIRO_CONTENT_COLOR, width, height);
     }
 
-    const gc = c.cairo_create(self.cs);
+    const cr = c.cairo_create(self.cs);
+    // for debugging, fill with invalid color:
+    c.cairo_set_source_rgb(cr, 0.8, 0.2, 0.2);
+    c.cairo_paint(cr);
 
     for (0..grid.rows) |row| {
         const basepos = row * grid.cols;
@@ -178,28 +195,37 @@ fn flush(self: *Self) !void {
         dbg("SEGMENTS {}: ", .{row});
         const y: c_int = @intCast(row * self.cell_height);
         for (1..grid.cols + 1) |col| {
+            const last_attr = cur_attr;
             const new = if (col < grid.cols) new: {
-                const last_attr = cur_attr;
                 cur_attr = grid.cell.items[basepos + col].attr_id;
                 break :new cur_attr != last_attr;
             } else true;
 
             if (new) {
                 dbg("{}-{}, ", .{ begin, col });
-                begin = col;
 
-                c.cairo_save(gc);
-                c.gdk_cairo_rectangle(gc, &.{
-                    .x = @intCast(col),
+                const attr = self.rpc.ui.attr.items[if (last_attr < self.rpc.ui.attr.items.len) last_attr else 0];
+
+                const pos: c.GdkRectangle = .{
+                    .x = @intCast(self.cell_width * begin),
                     .y = y,
                     .width = @intCast(self.cell_width * (col - begin)),
                     .height = @intCast(self.cell_height),
-                });
-                c.cairo_restore(gc);
+                };
+                c.gdk_cairo_rectangle(cr, &pos);
+                const bg: RGB = @bitCast(attr.bg orelse self.rpc.ui.default_colors.bg);
+                const max: f64 = 255.0;
+                // dbg("{}<-{}, ", .{ pos, bg });
+                c.cairo_set_source_rgb(cr, @as(f64, @floatFromInt(bg.r)) / max, @as(f64, @floatFromInt(bg.g)) / max, @as(f64, @floatFromInt(bg.b)) / max);
+                c.cairo_fill(cr);
+                begin = col;
             }
         }
         dbg("\n", .{});
     }
+
+    c.cairo_destroy(cr);
+    c.gtk_widget_queue_draw(g.GTK_WIDGET(self.da));
 }
 
 fn pango_pixels_ceil(u: c_int) c_int {
@@ -249,7 +275,7 @@ fn init(self: *Self) !void {
     self.key_buf = ArrayList(u8).init(allocator);
 
     self.decoder = mpack.SkipDecoder{ .data = self.buf[0..0] };
-    self.rpc = RPCState.init(allocator);
+    self.rpc = try RPCState.init(allocator);
 
     var encoder = mpack.encoder(self.enc_buf.writer());
     try io.attach_test(&encoder, if (the_fd) |_| @as(i32, 3) else null);
@@ -261,7 +287,7 @@ fn init(self: *Self) !void {
 }
 
 fn activate(app: *c.GtkApplication, data: c.gpointer) callconv(.C) void {
-    var self = get_self(data);
+    const self = get_self(data);
     self.init() catch @panic("heeee");
 
     const window: *c.GtkWidget = c.gtk_application_window_new(app);
@@ -274,6 +300,7 @@ fn activate(app: *c.GtkApplication, data: c.gpointer) callconv(.C) void {
     self.da = c.gtk_drawing_area_new();
     c.gtk_drawing_area_set_content_width(g.GTK_DRAWING_AREA(self.da), 500);
     c.gtk_drawing_area_set_content_height(g.GTK_DRAWING_AREA(self.da), 500);
+    c.gtk_drawing_area_set_draw_func(g.GTK_DRAWING_AREA(self.da), &redraw_area, self, null);
     const key_ev = c.gtk_event_controller_key_new();
     c.gtk_widget_add_controller(window, key_ev);
     const im_context = c.gtk_im_multicontext_new();
