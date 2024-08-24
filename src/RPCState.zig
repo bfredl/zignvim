@@ -48,6 +48,10 @@ const charsize = 8;
 pub const Cell = struct {
     char: [charsize]u8,
     attr_id: u32,
+
+    pub fn text(self: *const Cell) []const u8 {
+        return self.char[0 .. std.mem.indexOfScalar(u8, &self.char, 0) orelse charsize];
+    }
 };
 
 pub const RGB = packed struct { b: u8, g: u8, r: u8 };
@@ -327,7 +331,7 @@ pub fn dump_grid(self: *Self) void {
                 } else "\x1b[0m";
                 dbg("{s}", .{slice});
             }
-            dbg("{s}", .{cell.char[0 .. std.mem.indexOfScalar(u8, &cell.char, 0) orelse charsize]});
+            dbg("{s}", .{cell.text()});
         }
         dbg("\n", .{});
     }

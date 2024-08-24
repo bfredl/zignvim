@@ -217,7 +217,7 @@ fn flush(self: *Self) !void {
                     .width = @intCast(self.cell_width * (col - begin)),
                     .height = @intCast(self.cell_height),
                 };
-                self.draw_run(cr, pos, grid.cell.items[basepos + begin ..][0..(col - begin)], attr);
+                try self.draw_run(cr, pos, grid.cell.items[basepos + begin ..][0..(col - begin)], attr);
 
                 begin = col;
             }
@@ -229,13 +229,32 @@ fn flush(self: *Self) !void {
     c.gtk_widget_queue_draw(g.GTK_WIDGET(self.da));
 }
 
-fn draw_run(self: *Self, cr: *c.cairo_t, pos: c.GdkRectangle, cells: []RPCState.Cell, attr: RPCState.Attr) void {
-    _ = cells;
+fn draw_run(self: *Self, cr: *c.cairo_t, pos: c.GdkRectangle, cells: []RPCState.Cell, attr: RPCState.Attr) !void {
     c.gdk_cairo_rectangle(cr, &pos);
     const bg: RGB = @bitCast(attr.bg orelse self.rpc.ui.default_colors.bg);
     // dbg("{}<-{}, ", .{ pos, bg });
     c.cairo_set_source_rgb(cr, ccolor(bg.r), ccolor(bg.g), ccolor(bg.b));
     c.cairo_fill(cr);
+
+    // TODO: shared buffer!
+    var text = std.ArrayList(u8).init(self.gpa.allocator());
+    // TODO: be smart and cut after last non-space
+    var anytext = false;
+    for (cells) |cell| {
+        if (!mem.eql(u8, cell.char[0..2], &.{ 32, 0 })) anytext = true;
+        try text.appendSlice(cell.text());
+    }
+    if (!anytext) return; // for now this skips empty shit when inspecting
+    dbg("for text \"{s}\":\n", .{text.items});
+
+    const attr_list = c.pango_attr_list_new();
+    var item_list = c.pango_itemize(self.context, text.items.ptr, 0, @intCast(text.items.len), attr_list, null);
+
+    while (item_list) |item| {
+        const i: *c.PangoItem = @ptrCast(@alignCast(item.*.data));
+        item_list = c.g_list_delete_link(item, item);
+        dbg("ITYM {}\n", .{i.*});
+    }
 }
 
 fn pango_pixels_ceil(u: c_int) c_int {
