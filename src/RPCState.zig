@@ -30,7 +30,7 @@ ui: struct {
     grid: [1]Grid,
 },
 
-const Attr = struct {
+pub const Attr = struct {
     start: u32,
     end: u32,
     fg: ?u24,
@@ -45,7 +45,7 @@ const Grid = struct {
 
 const charsize = 8;
 
-const Cell = struct {
+pub const Cell = struct {
     char: [charsize]u8,
     attr_id: u32,
 };

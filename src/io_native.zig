@@ -55,7 +55,7 @@ pub fn attach_test(encoder: anytype, stdin_fd: ?i32) !void {
 
 pub fn unsafe_input(encoder: anytype, input: []const u8) !void {
     try encoder.putArrayHead(3);
-    try encoder.putInt(2); // request
+    try encoder.putInt(2); // notify
     try encoder.putStr("nvim_input");
     try encoder.putArrayHead(1);
     try encoder.putStr(input);

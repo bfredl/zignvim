@@ -33,7 +33,7 @@ cs: ?*c.cairo_surface_t = null,
 rows: u16 = 0,
 cols: u16 = 0,
 
-layout: *c.PangoLayout = undefined,
+context: *c.PangoContext = undefined,
 //font_name: []u8,
 cell_width: u32 = 0,
 cell_height: u32 = 0,
@@ -95,13 +95,13 @@ fn commit(_: *c.GtkIMContext, str: [*:0]const u8, data: c.gpointer) callconv(.C)
 }
 
 fn focus_enter(_: *c.GtkEventControllerFocus, data: c.gpointer) callconv(.C) void {
-    c.g_print("änter\n");
+    // c.g_print("änter\n");
     const im_context: *c.GtkIMContext = @ptrCast(@alignCast(data));
     c.gtk_im_context_focus_in(im_context);
 }
 
 fn focus_leave(_: *c.GtkEventControllerFocus, data: c.gpointer) callconv(.C) void {
-    c.g_print("you must leave now\n");
+    // c.g_print("you must leave now\n");
     const im_context: *c.GtkIMContext = @ptrCast(@alignCast(data));
     c.gtk_im_context_focus_out(im_context);
 }
@@ -153,6 +153,11 @@ fn redraw_area(_: ?*c.GtkDrawingArea, cr_in: ?*c.cairo_t, width: c_int, height: 
     c.cairo_paint(cr);
 }
 
+fn ccolor(cval: u8) f64 {
+    const max: f64 = 255.0;
+    return @as(f64, @floatFromInt(cval)) / max;
+}
+
 fn flush(self: *Self) !void {
     dbg("le flush\n", .{});
     self.rpc.dump_grid();
@@ -183,7 +188,7 @@ fn flush(self: *Self) !void {
         self.cs = c.gdk_surface_create_similar_surface(surface, c.CAIRO_CONTENT_COLOR, width, height);
     }
 
-    const cr = c.cairo_create(self.cs);
+    const cr = c.cairo_create(self.cs) orelse @panic("det är ÖKEN");
     // for debugging, fill with invalid color:
     c.cairo_set_source_rgb(cr, 0.8, 0.2, 0.2);
     c.cairo_paint(cr);
@@ -192,7 +197,7 @@ fn flush(self: *Self) !void {
         const basepos = row * grid.cols;
         var cur_attr: u32 = grid.cell.items[basepos].attr_id;
         var begin: usize = 0;
-        dbg("SEGMENTS {}: ", .{row});
+        // dbg("SEGMENTS {}: ", .{row});
         const y: c_int = @intCast(row * self.cell_height);
         for (1..grid.cols + 1) |col| {
             const last_attr = cur_attr;
@@ -202,7 +207,7 @@ fn flush(self: *Self) !void {
             } else true;
 
             if (new) {
-                dbg("{}-{}, ", .{ begin, col });
+                // dbg("{}-{}, ", .{ begin, col });
 
                 const attr = self.rpc.ui.attr.items[if (last_attr < self.rpc.ui.attr.items.len) last_attr else 0];
 
@@ -212,20 +217,25 @@ fn flush(self: *Self) !void {
                     .width = @intCast(self.cell_width * (col - begin)),
                     .height = @intCast(self.cell_height),
                 };
-                c.gdk_cairo_rectangle(cr, &pos);
-                const bg: RGB = @bitCast(attr.bg orelse self.rpc.ui.default_colors.bg);
-                const max: f64 = 255.0;
-                // dbg("{}<-{}, ", .{ pos, bg });
-                c.cairo_set_source_rgb(cr, @as(f64, @floatFromInt(bg.r)) / max, @as(f64, @floatFromInt(bg.g)) / max, @as(f64, @floatFromInt(bg.b)) / max);
-                c.cairo_fill(cr);
+                self.draw_run(cr, pos, grid.cell.items[basepos + begin ..][0..(col - begin)], attr);
+
                 begin = col;
             }
         }
-        dbg("\n", .{});
+        // dbg("\n", .{});
     }
 
     c.cairo_destroy(cr);
     c.gtk_widget_queue_draw(g.GTK_WIDGET(self.da));
+}
+
+fn draw_run(self: *Self, cr: *c.cairo_t, pos: c.GdkRectangle, cells: []RPCState.Cell, attr: RPCState.Attr) void {
+    _ = cells;
+    c.gdk_cairo_rectangle(cr, &pos);
+    const bg: RGB = @bitCast(attr.bg orelse self.rpc.ui.default_colors.bg);
+    // dbg("{}<-{}, ", .{ pos, bg });
+    c.cairo_set_source_rgb(cr, ccolor(bg.r), ccolor(bg.g), ccolor(bg.b));
+    c.cairo_fill(cr);
 }
 
 fn pango_pixels_ceil(u: c_int) c_int {
@@ -246,7 +256,7 @@ fn set_font(self: *Self, font: [:0]const u8) !void {
     // dbg("cairso {}\n", .{@ptrToInt(cairo)});
     const fontdesc = c.pango_font_description_from_string(font);
 
-    const pctx = c.pango_cairo_create_context(cairo);
+    const pctx = c.pango_cairo_create_context(cairo) orelse @panic("pango pongo");
     c.pango_context_set_font_description(pctx, fontdesc);
 
     const metrics = c.pango_context_get_metrics(pctx, fontdesc, c.pango_context_get_language(pctx));
@@ -257,9 +267,7 @@ fn set_font(self: *Self, font: [:0]const u8) !void {
 
     dbg("le foont terrible {} {}\n", .{ self.cell_width, self.cell_height });
 
-    self.layout = c.pango_layout_new(pctx) orelse return error.AmIAloneInHere;
-    c.pango_layout_set_font_description(self.layout, fontdesc);
-    c.pango_layout_set_alignment(self.layout, c.PANGO_ALIGN_LEFT);
+    self.context = pctx;
 }
 
 fn init(self: *Self) !void {
