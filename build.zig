@@ -28,6 +28,19 @@ pub fn build(b: *std.Build) void {
     const gtk_run_cmd = b.addRunArtifact(exe_gtk);
     gtk_test.dependOn(&gtk_run_cmd.step);
 
+    const pango_test = b.step("pango_test", "visual representation");
+    const exe_pango = b.addExecutable(.{
+        .name = "pango_test",
+        .root_source_file = b.path("src/pango_test.zig"),
+        .optimize = opt,
+        .target = t,
+    });
+    exe_pango.linkLibC();
+    exe_pango.linkSystemLibrary("gtk4");
+    b.installArtifact(exe_pango);
+    const pango = b.addRunArtifact(exe_pango);
+    pango_test.dependOn(&pango.step);
+
     if (false) {
         const mode = b.standardReleaseOptions();
         const lib = b.addStaticLibrary("zignvim", "src/main.zig");
