@@ -26,6 +26,9 @@ pub fn build(b: *std.Build) void {
     exe_gtk.linkSystemLibrary("gtk4");
     b.installArtifact(exe_gtk);
     const gtk_run_cmd = b.addRunArtifact(exe_gtk);
+    if (b.args) |args| {
+        gtk_run_cmd.addArgs(args);
+    }
     gtk_test.dependOn(&gtk_run_cmd.step);
 
     const pango_test = b.step("pango_test", "visual representation");
@@ -39,6 +42,9 @@ pub fn build(b: *std.Build) void {
     exe_pango.linkSystemLibrary("gtk4");
     b.installArtifact(exe_pango);
     const pango = b.addRunArtifact(exe_pango);
+    if (b.args) |args| {
+        pango.addArgs(args);
+    }
     pango_test.dependOn(&pango.step);
 
     if (false) {
