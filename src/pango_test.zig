@@ -15,10 +15,18 @@ fn activate(app: *c.GtkApplication, data: c.gpointer) callconv(.C) void {
     const text = "hewwo";
     const attr_list = c.pango_attr_list_new();
     var item_list = c.pango_itemize(pctx, text.ptr, 0, @intCast(text.len), attr_list, null);
+
+    const glyphs = g.pango_glyph_string_new() orelse @panic("GLYP");
     while (item_list) |item| {
         const i: *c.PangoItem = @ptrCast(@alignCast(item.*.data));
         item_list = c.g_list_delete_link(item, item);
         dbg("ITYM {}\n", .{i.*});
+
+        g.pango_shape_full(text[@intCast(i.offset)..], i.length, text.ptr, text.len, &i.analysis, glyphs);
+
+        for (glyphs.glyphs[0..@intCast(glyphs.num_glyphs)]) |gl| {
+            dbg("GLYP {}\n", .{gl});
+        }
     }
 }
 

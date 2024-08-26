@@ -37,3 +37,19 @@ pub fn g_signal_connect(instance: anytype, detailed_signal: [*:0]const u8, handl
 pub fn g_signal_connect_swapped(instance: anytype, detailed_signal: [*:0]const u8, handler: anytype, data: anytype) c.gulong {
     return g_signal_connect_data(instance, detailed_signal, handler, data, c.G_CONNECT_SWAPPED);
 }
+
+pub const FakePangoGlyphInfo = extern struct {
+    glyph: c.PangoGlyph = @import("std").mem.zeroes(c.PangoGlyph),
+    geometry: c.PangoGlyphGeometry = @import("std").mem.zeroes(c.PangoGlyphGeometry),
+    attr: c.guint = @import("std").mem.zeroes(c.guint),
+};
+
+pub const FakePangoGlyphString = extern struct {
+    num_glyphs: c_int = @import("std").mem.zeroes(c_int),
+    glyphs: [*c]FakePangoGlyphInfo = @import("std").mem.zeroes(?*FakePangoGlyphInfo),
+    log_clusters: [*c]c_int = @import("std").mem.zeroes([*c]c_int),
+    space: c_int = @import("std").mem.zeroes(c_int),
+};
+
+pub extern fn pango_glyph_string_new() ?*FakePangoGlyphString;
+pub extern fn pango_shape_full(item_text: [*c]const u8, item_length: c_int, paragraph_text: [*c]const u8, paragraph_length: c_int, analysis: [*c]const c.PangoAnalysis, glyphs: [*c]FakePangoGlyphString) void;
