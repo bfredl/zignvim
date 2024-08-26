@@ -31,6 +31,8 @@ fn command_line(
         const i: *c.PangoItem = @ptrCast(@alignCast(item.*.data));
         item_list = c.g_list_delete_link(item, item);
         dbg("ITYM {}\n", .{i.*});
+        const desc = c.pango_font_describe(i.analysis.font);
+        dbg("FOONT {s}\n", .{c.pango_font_description_to_string(desc)});
 
         g.pango_shape_full(text[@intCast(i.offset)..].ptr, i.length, text.ptr, @intCast(text.len), &i.analysis, glyphs);
 
