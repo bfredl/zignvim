@@ -59,8 +59,8 @@ pub fn Encoder(comptime WriterType: type) type {
 
         pub fn putInt(self: Self, val: anytype) Error!void {
             const unsigned = comptime switch (@typeInfo(@TypeOf(val))) {
-                .Int => |int| int.signedness == .unsigned,
-                .ComptimeInt => false, // or val >= 0 but handled below
+                .int => |int| int.signedness == .unsigned,
+                .comptime_int => false, // or val >= 0 but handled below
                 else => unreachable,
             };
             if (unsigned or val >= 0) {
@@ -138,7 +138,7 @@ pub const InnerDecoder = struct {
     }
 
     fn readInt(self: *Self, comptime T: type) EOFError!T {
-        if (@typeInfo(T) != .Int) {
+        if (@typeInfo(T) != .int) {
             @compileError("why u no int???");
         }
         const slice = try self.readBytes(@sizeOf(T));
