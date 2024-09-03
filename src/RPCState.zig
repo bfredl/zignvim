@@ -70,13 +70,13 @@ fn putAt(array_list: anytype, index: usize, item: anytype) !void {
 }
 
 pub fn init(allocator: mem.Allocator) !Self {
-    var attr = ArrayList(Attr).init(allocator);
+    var attr: ArrayList(Attr) = .init(allocator);
     try attr.append(Attr{ .start = 0, .end = 0, .fg = null, .bg = null });
     return .{
         .ui = .{
-            .attr_arena = ArrayList(u8).init(allocator),
-            .attr = ArrayList(Attr).init(allocator),
-            .grid = .{.{ .rows = 0, .cols = 0, .cell = ArrayList(Cell).init(allocator) }},
+            .attr_arena = .init(allocator),
+            .attr = .init(allocator),
+            .grid = .{.{ .rows = 0, .cols = 0, .cell = .init(allocator) }},
         },
     };
 }
