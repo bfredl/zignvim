@@ -42,10 +42,11 @@ fn get_self(data: c.gpointer) *Self {
     return @ptrCast(@alignCast(data));
 }
 
-fn key_pressed(_: *c.GtkEventControllerKey, keyval: c.guint, keycode: c.guint, mod: c.GdkModifierType, data: c.gpointer) callconv(.C) void {
+fn key_pressed(_: *c.GtkEventControllerKey, keyval: c.guint, keycode: c.guint, mod: c.GdkModifierType, data: c.gpointer) callconv(.C) bool {
     _ = keycode;
     const self = get_self(data);
     self.onKeyPress(keyval, mod) catch @panic("We live inside of a dream!");
+    return false;
 }
 
 fn onKeyPress(self: *Self, keyval: c.guint, mod: c.guint) !void {
@@ -78,6 +79,22 @@ fn onKeyPress(self: *Self, keyval: c.guint, mod: c.guint) !void {
     }
 
     try self.doCommit(self.key_buf.items);
+}
+
+fn mouse_pressed(gesture: *c.GtkGesture, n_press: c.guint, x: c.gdouble, y: c.gdouble, data: c.gpointer) callconv(.C) bool {
+    const self = get_self(data);
+    self.onMousePress(gesture, n_press, x, y) catch @panic("We live inside of a dream!");
+    return false;
+}
+
+fn onMousePress(self: *Self, gesture: *c.GtkGesture, n_press: c.guint, x: c.gdouble, y: c.gdouble) !void {
+    _ = gesture;
+    _ = n_press;
+
+    const cell_col = @as(u32, @intFromFloat(x)) / self.cell_width;
+    const cell_row = @as(u32, @intFromFloat(y)) / self.cell_height;
+
+    dbg("KLIIICK {} {}\n", .{ cell_col, cell_row });
 }
 
 fn doCommit(self: *Self, str: []const u8) !void {
@@ -336,6 +353,12 @@ fn activate(app: *c.GtkApplication, data: c.gpointer) callconv(.C) void {
     c.gtk_im_context_set_client_widget(im_context, self.da);
     c.gtk_im_context_set_use_preedit(im_context, c.FALSE);
     _ = g.g_signal_connect(key_ev, "key-pressed", g.G_CALLBACK(&key_pressed), self);
+
+    const button_ev = c.gtk_gesture_click_new();
+    c.gtk_gesture_single_set_button(@ptrCast(button_ev), 0); // CAN HAS ALL THE BUTTONS
+    c.gtk_widget_add_controller(window, @ptrCast(button_ev));
+    _ = g.g_signal_connect(button_ev, "pressed", g.G_CALLBACK(&mouse_pressed), self);
+
     _ = g.g_signal_connect(im_context, "commit", g.G_CALLBACK(&commit), self);
 
     const focus_ev = c.gtk_event_controller_focus_new();
