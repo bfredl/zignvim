@@ -265,11 +265,11 @@ fn flush(self: *Self) !void {
     c.gtk_widget_queue_draw(g.GTK_WIDGET(self.da));
 }
 
-fn draw_run(self: *Self, cr: *c.cairo_t, row: usize, col: usize, width: usize, cells: []RPCState.Cell, attr: RPCState.Attr, debug: bool) !void {
+fn draw_run(self: *Self, cr: *c.cairo_t, row: usize, col: usize, bg_width: usize, cells: []RPCState.Cell, attr: RPCState.Attr, debug: bool) !void {
     const pos: c.GdkRectangle = .{
         .x = @intCast(self.cell_width * col),
         .y = @intCast(row * self.cell_height),
-        .width = @intCast(self.cell_width * width),
+        .width = @intCast(self.cell_width * bg_width),
         .height = @intCast(self.cell_height),
     };
     c.gdk_cairo_rectangle(cr, &pos);
@@ -280,14 +280,27 @@ fn draw_run(self: *Self, cr: *c.cairo_t, row: usize, col: usize, width: usize, c
 
     // TODO: shared buffer!
     var text = std.ArrayList(u8).init(self.gpa.allocator());
-    // TODO: be smart and cut after last non-space
-    var anytext = false;
-    for (cells) |cell| {
-        if (!mem.eql(u8, cell.char[0..2], &.{ 32, 0 })) anytext = true;
+    defer text.deinit();
+
+    var text_end = bg_width;
+    while (text_end > 0) : (text_end -= 1) {
+        if (!mem.eql(u8, cells[text_end - 1].char[0..2], &.{ 32, 0 })) break;
+    }
+    if (text_end == 0) return;
+
+    var first_text: usize = 0;
+    while (first_text < text_end) : (first_text += 1) {
+        if (!mem.eql(u8, cells[first_text].char[0..2], &.{ 32, 0 })) break;
+    }
+
+    const text_cells = cells[first_text..text_end];
+    const text_col = col + first_text;
+    const text_width = text_end - first_text;
+
+    for (text_cells[0..text_width]) |cell| {
         try text.appendSlice(cell.text());
     }
-    if (!anytext) return; // for now this skips empty shit when inspecting
-    if (debug) dbg("for text \"{s}\":\n", .{text.items});
+    if (debug) dbg("for text \"{s}\" in ({},{}):\n", .{ text.items, text_col, text_col + text_width });
 
     const attr_list = c.pango_attr_list_new();
     var item_list = c.pango_itemize(self.context, text.items.ptr, 0, @intCast(text.items.len), attr_list, null);
