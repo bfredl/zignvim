@@ -91,10 +91,36 @@ fn onMousePress(self: *Self, gesture: *c.GtkGesture, n_press: c.guint, x: c.gdou
     _ = gesture;
     _ = n_press;
 
-    const cell_col = @as(u32, @intFromFloat(x)) / self.cell_width;
-    const cell_row = @as(u32, @intFromFloat(y)) / self.cell_height;
+    const col = @as(u32, @intFromFloat(x)) / self.cell_width;
+    const row = @as(u32, @intFromFloat(y)) / self.cell_height;
 
-    dbg("KLIIICK {} {}\n", .{ cell_col, cell_row });
+    dbg("KLIIICK {} {}\n", .{ col, row });
+
+    const grid = &self.rpc.ui.grid[0];
+    if (col >= grid.cols or row >= grid.cols) return;
+    const basepos = row * grid.cols;
+    const gridrow = grid.cell.items[basepos..][0..grid.cols];
+
+    const myattr = gridrow[col].attr_id;
+
+    var first = col;
+    while (first > 0) : (first -= 1) {
+        if (gridrow[first - 1].attr_id != myattr) break;
+    }
+    var end = col + 1;
+    while (end < grid.cols) : (end += 1) {
+        if (gridrow[end].attr_id != myattr) break;
+    }
+
+    dbg("detektera: {} {}\n", .{ first, end });
+
+    const cr = c.cairo_create(self.cs) orelse @panic("bullllll");
+    defer c.cairo_destroy(cr);
+
+    const attr = self.rpc.ui.attr.items[if (myattr < self.rpc.ui.attr.items.len) myattr else 0];
+    try self.draw_run(cr, row, first, end - first, gridrow[first..end], attr, true);
+
+    // NB: redisplay if we actually change something
 }
 
 fn doCommit(self: *Self, str: []const u8) !void {
@@ -206,6 +232,7 @@ fn flush(self: *Self) !void {
     }
 
     const cr = c.cairo_create(self.cs) orelse @panic("det är ÖKEN");
+    defer c.cairo_destroy(cr);
     // for debugging, fill with invalid color:
     c.cairo_set_source_rgb(cr, 0.8, 0.2, 0.2);
     c.cairo_paint(cr);
@@ -215,7 +242,6 @@ fn flush(self: *Self) !void {
         var cur_attr: u32 = grid.cell.items[basepos].attr_id;
         var begin: usize = 0;
         // dbg("SEGMENTS {}: ", .{row});
-        const y: c_int = @intCast(row * self.cell_height);
         for (1..grid.cols + 1) |col| {
             const last_attr = cur_attr;
             const new = if (col < grid.cols) new: {
@@ -228,13 +254,7 @@ fn flush(self: *Self) !void {
 
                 const attr = self.rpc.ui.attr.items[if (last_attr < self.rpc.ui.attr.items.len) last_attr else 0];
 
-                const pos: c.GdkRectangle = .{
-                    .x = @intCast(self.cell_width * begin),
-                    .y = y,
-                    .width = @intCast(self.cell_width * (col - begin)),
-                    .height = @intCast(self.cell_height),
-                };
-                try self.draw_run(cr, pos, grid.cell.items[basepos + begin ..][0..(col - begin)], attr);
+                try self.draw_run(cr, row, begin, col - begin, grid.cell.items[basepos + begin .. basepos + col], attr, false);
 
                 begin = col;
             }
@@ -242,11 +262,16 @@ fn flush(self: *Self) !void {
         // dbg("\n", .{});
     }
 
-    c.cairo_destroy(cr);
     c.gtk_widget_queue_draw(g.GTK_WIDGET(self.da));
 }
 
-fn draw_run(self: *Self, cr: *c.cairo_t, pos: c.GdkRectangle, cells: []RPCState.Cell, attr: RPCState.Attr) !void {
+fn draw_run(self: *Self, cr: *c.cairo_t, row: usize, col: usize, width: usize, cells: []RPCState.Cell, attr: RPCState.Attr, debug: bool) !void {
+    const pos: c.GdkRectangle = .{
+        .x = @intCast(self.cell_width * col),
+        .y = @intCast(row * self.cell_height),
+        .width = @intCast(self.cell_width * width),
+        .height = @intCast(self.cell_height),
+    };
     c.gdk_cairo_rectangle(cr, &pos);
     const bg: RGB = @bitCast(attr.bg orelse self.rpc.ui.default_colors.bg);
     // dbg("{}<-{}, ", .{ pos, bg });
@@ -262,7 +287,7 @@ fn draw_run(self: *Self, cr: *c.cairo_t, pos: c.GdkRectangle, cells: []RPCState.
         try text.appendSlice(cell.text());
     }
     if (!anytext) return; // for now this skips empty shit when inspecting
-    dbg("for text \"{s}\":\n", .{text.items});
+    if (debug) dbg("for text \"{s}\":\n", .{text.items});
 
     const attr_list = c.pango_attr_list_new();
     var item_list = c.pango_itemize(self.context, text.items.ptr, 0, @intCast(text.items.len), attr_list, null);
@@ -270,7 +295,7 @@ fn draw_run(self: *Self, cr: *c.cairo_t, pos: c.GdkRectangle, cells: []RPCState.
     while (item_list) |item| {
         const i: *c.PangoItem = @ptrCast(@alignCast(item.*.data));
         item_list = c.g_list_delete_link(item, item);
-        dbg("ITYM {}\n", .{i.*});
+        if (debug) dbg("ITYM {}\n", .{i.*});
     }
 }
 
