@@ -75,7 +75,7 @@ pub fn init(allocator: mem.Allocator) !Self {
     return .{
         .ui = .{
             .attr_arena = .init(allocator),
-            .attr = .init(allocator),
+            .attr = attr,
             .grid = .{.{ .rows = 0, .cols = 0, .cell = .init(allocator) }},
         },
     };

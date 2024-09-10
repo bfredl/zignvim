@@ -37,6 +37,7 @@ context: *c.PangoContext = undefined,
 //font_name: []u8,
 cell_width: u32 = 0,
 cell_height: u32 = 0,
+font_ascent: u32 = 0,
 
 fn get_self(data: c.gpointer) *Self {
     return @ptrCast(@alignCast(data));
@@ -112,7 +113,7 @@ fn onMousePress(self: *Self, gesture: *c.GtkGesture, n_press: c.guint, x: c.gdou
         if (gridrow[end].attr_id != myattr) break;
     }
 
-    dbg("detektera: {} {}\n", .{ first, end });
+    dbg("detektera: {} {} med {}\n", .{ first, end, myattr });
 
     const cr = c.cairo_create(self.cs) orelse @panic("bullllll");
     defer c.cairo_destroy(cr);
@@ -272,8 +273,10 @@ fn draw_run(self: *Self, cr: *c.cairo_t, row: usize, col: usize, bg_width: usize
         .width = @intCast(self.cell_width * bg_width),
         .height = @intCast(self.cell_height),
     };
+    if (debug) dbg("ATTR {}\n", .{attr});
     c.gdk_cairo_rectangle(cr, &pos);
     const bg: RGB = @bitCast(attr.bg orelse self.rpc.ui.default_colors.bg);
+    if (debug) dbg("bg is {}\n", .{bg});
     // dbg("{}<-{}, ", .{ pos, bg });
     c.cairo_set_source_rgb(cr, ccolor(bg.r), ccolor(bg.g), ccolor(bg.b));
     c.cairo_fill(cr);
@@ -303,13 +306,39 @@ fn draw_run(self: *Self, cr: *c.cairo_t, row: usize, col: usize, bg_width: usize
     if (debug) dbg("for text \"{s}\" in ({},{}):\n", .{ text.items, text_col, text_col + text_width });
 
     const attr_list = c.pango_attr_list_new();
+    const glyphs = g.pango_glyph_string_new() orelse @panic("GLORT");
+
     var item_list = c.pango_itemize(self.context, text.items.ptr, 0, @intCast(text.items.len), attr_list, null);
+
+    const fg: RGB = @bitCast(attr.fg orelse self.rpc.ui.default_colors.fg);
+    if (debug) dbg("fg is {}\n", .{fg});
+    // dbg("{}<-{}, ", .{ pos, bg });
+    c.cairo_set_source_rgb(cr, ccolor(fg.r), ccolor(fg.g), ccolor(fg.b));
+
+    var xpos = pos.x;
+
+    const baseline = pos.y + @as(c_int, @intCast(self.font_ascent));
 
     while (item_list) |item| {
         const i: *c.PangoItem = @ptrCast(@alignCast(item.*.data));
         item_list = c.g_list_delete_link(item, item);
         if (debug) dbg("ITYM {}\n", .{i.*});
+        const a = &i.analysis;
+
+        // disable pango's RTL handling, must come from nvim itself
+        a.level = 0;
+
+        g.pango_shape_full(text.items.ptr[@intCast(i.offset)..], i.length, text.items.ptr, @intCast(text.items.len), a, glyphs);
+
+        c.cairo_move_to(cr, @floatFromInt(xpos), @floatFromInt(baseline));
+        g.pango_cairo_show_glyph_string(cr, a.font, glyphs);
+
+        const width = pango_pixels_ceil(g.pango_glyph_string_get_width(glyphs));
+        xpos += width;
+        if (debug) dbg("xposss {}\n", .{xpos});
     }
+
+    c.pango_attr_list_unref(attr_list);
 }
 
 fn pango_pixels_ceil(u: c_int) c_int {
@@ -336,10 +365,13 @@ fn set_font(self: *Self, font: [:0]const u8) !void {
     const metrics = c.pango_context_get_metrics(pctx, fontdesc, c.pango_context_get_language(pctx));
     const width = c.pango_font_metrics_get_approximate_char_width(metrics);
     const height = c.pango_font_metrics_get_height(metrics);
+    const ascent = c.pango_font_metrics_get_ascent(metrics);
     self.cell_width = @intCast(pango_pixels_ceil(width));
     self.cell_height = @intCast(pango_pixels_ceil(height));
+    self.font_ascent = @intCast(pango_pixels_ceil(ascent));
 
     dbg("le foont terrible {} {}\n", .{ self.cell_width, self.cell_height });
+    dbg("deltas {} {} in scale {} \n", .{ @as(c_int, @intCast(self.cell_width)) * c.PANGO_SCALE - width, @as(c_int, @intCast(self.cell_height)) * c.PANGO_SCALE - height, c.PANGO_SCALE });
 
     self.context = pctx;
 }
