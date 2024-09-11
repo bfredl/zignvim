@@ -21,13 +21,51 @@ event_calls: u64 = 0,
 cell_state: CellState = undefined,
 
 ui: struct {
+    allocator: mem.Allocator,
     attr_arena: ArrayList(u8),
+    glyph_arena: std.ArrayListUnmanaged(u8) = .{},
+    glyph_cache: std.HashMapUnmanaged(u32, void, std.hash_map.StringIndexContext, std.hash_map.default_max_load_percentage) = .{},
     attr: ArrayList(Attr),
 
     cursor: struct { grid: u32, row: u16, col: u16 } = undefined,
     default_colors: struct { fg: u24, bg: u24, sp: u24 } = undefined,
 
     grid: [1]Grid,
+
+    pub fn text(self: *@This(), cell: *const Cell) []const u8 {
+        return switch (cell.text) {
+            // oo I eat plain toast
+            .plain => |str| str[0 .. std.mem.indexOfScalar(u8, &str, 0) orelse charsize],
+            .indexed => |idx| mem.span(@as([*:0]u8, @ptrCast(self.glyph_arena.items[idx..]))),
+        };
+    }
+
+    fn intern_glyph(self: *@This(), str: []const u8) !CellText {
+        if (str.len <= charsize) {
+            var char: [charsize]u8 = undefined;
+            for (0..str.len) |i| {
+                char[i] = str[i];
+            }
+            if (str.len < charsize) {
+                char[str.len] = 0;
+            }
+            return .{ .plain = char };
+        }
+        const gop = try self.glyph_cache.getOrPutContextAdapted(self.allocator, str, std.hash_map.StringIndexAdapter{
+            .bytes = &self.glyph_arena,
+        }, std.hash_map.StringIndexContext{
+            .bytes = &self.glyph_arena,
+        });
+        if (gop.found_existing) {
+            return .{ .indexed = gop.key_ptr.* };
+        } else {
+            const str_index: u32 = @intCast(self.glyph_arena.items.len);
+            gop.key_ptr.* = str_index;
+            try self.glyph_arena.appendSlice(self.allocator, str);
+            try self.glyph_arena.append(self.allocator, 0);
+            return .{ .indexed = str_index };
+        }
+    }
 },
 
 pub const Attr = struct {
@@ -43,14 +81,21 @@ const Grid = struct {
     cell: ArrayList(Cell),
 };
 
-const charsize = 8;
+// base charsize
+const charsize = 4;
+
+const CellText = union(enum) { plain: [charsize]u8, indexed: u32 };
 
 pub const Cell = struct {
-    char: [charsize]u8,
+    // TODO: use compression trick like in nvim to avoid the tag byte
+    text: CellText,
     attr_id: u32,
 
-    pub fn text(self: *const Cell) []const u8 {
-        return self.char[0 .. std.mem.indexOfScalar(u8, &self.char, 0) orelse charsize];
+    pub fn is_ascii_space(self: Cell) bool {
+        return switch (self.text) {
+            .indexed => false,
+            .plain => |txt| mem.eql(u8, txt[0..2], &.{ 32, 0 }),
+        };
     }
 };
 
@@ -74,6 +119,7 @@ pub fn init(allocator: mem.Allocator) !Self {
     try attr.append(Attr{ .start = 0, .end = 0, .fg = null, .bg = null });
     return .{
         .ui = .{
+            .allocator = allocator,
             .attr_arena = .init(allocator),
             .attr = attr,
             .grid = .{.{ .rows = 0, .cols = 0, .cell = .init(allocator) }},
@@ -270,7 +316,7 @@ fn grid_clear(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     char[0] = ' ';
     char[1] = 0;
 
-    @memset(grid.cell.items, .{ .char = char, .attr_id = 0 });
+    @memset(grid.cell.items, .{ .text = .{ .plain = char }, .attr_id = 0 });
 
     base_decoder.consumed(decoder);
     base_decoder.toSkip(iarg - 1); // TODO: we want decoder.pop() back!
@@ -331,7 +377,7 @@ pub fn dump_grid(self: *Self) void {
                 } else "\x1b[0m";
                 dbg("{s}", .{slice});
             }
-            dbg("{s}", .{cell.text()});
+            dbg("{s}", .{self.ui.text(&cell)});
         }
         dbg("\n", .{});
     }
@@ -395,16 +441,10 @@ fn next_cell(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
             }
         }
 
-        var char: [charsize]u8 = undefined;
-        for (0..@min(charsize, str.len)) |i| {
-            char[i] = str[i];
-        }
-        if (str.len < 8) {
-            char[str.len] = 0;
-        }
+        const cell_text: CellText = try self.ui.intern_glyph(str);
         const basepos = s.row * s.grid.cols;
         while (repeat > 0) : (repeat -= 1) {
-            s.grid.cell.items[basepos + s.col] = .{ .char = char, .attr_id = s.attr_id };
+            s.grid.cell.items[basepos + s.col] = .{ .text = cell_text, .attr_id = s.attr_id };
             s.col += 1;
             //dbg("{s}", .{str});
             // self.writer.writeAll(str) catch return RPCError.IOError;

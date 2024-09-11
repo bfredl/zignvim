@@ -56,3 +56,4 @@ pub extern fn pango_glyph_string_new() ?*FakePangoGlyphString;
 pub extern fn pango_shape_full(item_text: [*c]const u8, item_length: c_int, paragraph_text: [*c]const u8, paragraph_length: c_int, analysis: [*c]const c.PangoAnalysis, glyphs: [*c]FakePangoGlyphString) void;
 pub extern fn pango_glyph_string_get_width(glyphs: [*c]FakePangoGlyphString) c_int;
 pub extern fn pango_cairo_show_glyph_string(cr: ?*c.cairo_t, font: [*c]c.PangoFont, glyphs: [*c]FakePangoGlyphString) void;
+pub extern fn pango_glyph_string_free(string: [*c]FakePangoGlyphString) void;

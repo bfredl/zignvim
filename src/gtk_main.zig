@@ -255,7 +255,7 @@ fn flush(self: *Self) !void {
 
                 const attr = self.rpc.ui.attr.items[if (last_attr < self.rpc.ui.attr.items.len) last_attr else 0];
 
-                try self.draw_run(cr, row, begin, col - begin, grid.cell.items[basepos + begin .. basepos + col], attr, false);
+                try self.draw_run(cr, row, begin, col - begin, grid.cell.items[basepos + begin .. basepos + col], attr, true);
 
                 begin = col;
             }
@@ -287,13 +287,13 @@ fn draw_run(self: *Self, cr: *c.cairo_t, row: usize, col: usize, bg_width: usize
 
     var text_end = bg_width;
     while (text_end > 0) : (text_end -= 1) {
-        if (!mem.eql(u8, cells[text_end - 1].char[0..2], &.{ 32, 0 })) break;
+        if (!cells[text_end - 1].is_ascii_space()) break;
     }
     if (text_end == 0) return;
 
     var first_text: usize = 0;
     while (first_text < text_end) : (first_text += 1) {
-        if (!mem.eql(u8, cells[first_text].char[0..2], &.{ 32, 0 })) break;
+        if (!cells[first_text].is_ascii_space()) break;
     }
 
     const text_cells = cells[first_text..text_end];
@@ -301,7 +301,7 @@ fn draw_run(self: *Self, cr: *c.cairo_t, row: usize, col: usize, bg_width: usize
     const text_width = text_end - first_text;
 
     for (text_cells[0..text_width]) |cell| {
-        try text.appendSlice(cell.text());
+        try text.appendSlice(self.rpc.ui.text(&cell));
     }
     if (debug) dbg("for text \"{s}\" in ({},{}):\n", .{ text.items, text_col, text_col + text_width });
 
@@ -315,7 +315,7 @@ fn draw_run(self: *Self, cr: *c.cairo_t, row: usize, col: usize, bg_width: usize
     // dbg("{}<-{}, ", .{ pos, bg });
     c.cairo_set_source_rgb(cr, ccolor(fg.r), ccolor(fg.g), ccolor(fg.b));
 
-    var xpos = pos.x;
+    var xpos = pos.x + @as(c_int, @intCast(self.cell_width * first_text));
 
     const baseline = pos.y + @as(c_int, @intCast(self.font_ascent));
 
@@ -338,7 +338,9 @@ fn draw_run(self: *Self, cr: *c.cairo_t, row: usize, col: usize, bg_width: usize
         if (debug) dbg("xposss {}\n", .{xpos});
     }
 
+    // TODO: lifetime extend? or use something other than glib-pango which does dynamic memory like crazy
     c.pango_attr_list_unref(attr_list);
+    g.pango_glyph_string_free(glyphs);
 }
 
 fn pango_pixels_ceil(u: c_int) c_int {
