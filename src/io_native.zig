@@ -21,7 +21,7 @@ pub fn spawn(allocator: mem.Allocator, stdin_fd: ?i32) !std.process.Child {
     return child;
 }
 
-pub fn attach_test(encoder: anytype, stdin_fd: ?i32) !void {
+pub fn attach(encoder: anytype, width: u32, height: u32, stdin_fd: ?i32) !void {
     if (false) {
         try encoder.putArrayHead(4);
         try encoder.putInt(0); // request
@@ -41,8 +41,8 @@ pub fn attach_test(encoder: anytype, stdin_fd: ?i32) !void {
 
         try encoder.putStr("nvim_ui_attach");
         try encoder.putArrayHead(3);
-        try encoder.putInt(80); // width
-        try encoder.putInt(24); // height
+        try encoder.putInt(width);
+        try encoder.putInt(height);
         try encoder.putMapHead(if (stdin_fd != null) 2 else 1);
         try encoder.putStr("ext_linegrid");
         try encoder.putBool(true);
@@ -61,10 +61,20 @@ pub fn unsafe_input(encoder: anytype, input: []const u8) !void {
     try encoder.putStr(input);
 }
 
+pub fn try_resize(encoder: anytype, grid: u32, width: u32, height: u32) !void {
+    try encoder.putArrayHead(3);
+    try encoder.putInt(2); // notify
+    try encoder.putStr("nvim_ui_try_resize_grid");
+    try encoder.putArrayHead(3);
+    try encoder.putInt(grid);
+    try encoder.putInt(width);
+    try encoder.putInt(height);
+}
+
 pub fn dummy_loop(stdout: anytype, allocator: mem.Allocator) !void {
     var buf: [1024]u8 = undefined;
     var decoder = mpack.SkipDecoder{ .data = buf[0..0] };
-    var rpc = RPCState.init(allocator);
+    var rpc = try RPCState.init(allocator);
 
     // @compileLog(@sizeOf(@Frame(decodeLoop)));
     // 11920 with fully async readHead()

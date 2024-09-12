@@ -39,6 +39,10 @@ cell_width: u32 = 0,
 cell_height: u32 = 0,
 font_ascent: u32 = 0,
 
+requested_width: u32 = 0,
+requested_height: u32 = 0,
+did_resize: bool = false,
+
 fn get_self(data: c.gpointer) *Self {
     return @ptrCast(@alignCast(data));
 }
@@ -185,6 +189,35 @@ fn on_stdout(_: ?*c.GIOChannel, cond: c.GIOCondition, data: c.gpointer) callconv
     return 1;
 }
 
+fn area_resize(da: ?*c.GtkDrawingArea, width: c.gint, height: c.gint, data: c.gpointer) callconv(.C) bool {
+    _ = da;
+    const self = get_self(data);
+    self.onResize(@intCast(width), @intCast(height)) catch @panic("nööööööff");
+    return false;
+}
+
+fn onResize(self: *Self, width: u32, height: u32) !void {
+    if (self.cell_width == 0 or width == 0 or height == 0) {
+        return;
+    }
+
+    self.did_resize = true;
+
+    const new_width = @divTrunc(width, self.cell_width);
+    const new_height = @divTrunc(height, self.cell_height);
+    if (new_width != self.requested_width or new_height != self.requested_height) {
+        var encoder = mpack.encoder(self.enc_buf.writer());
+        try io.try_resize(&encoder, 1, new_width, new_height);
+        try self.child.stdin.?.writeAll(self.enc_buf.items);
+        try self.enc_buf.resize(0);
+        self.requested_width = new_width;
+        self.requested_height = new_height;
+        dbg("was requested: {} {}\n", .{ new_width, new_height });
+    } else {
+        dbg("unrequested resize: {} {}\n", .{ new_width, new_height });
+    }
+}
+
 fn redraw_area(_: ?*c.GtkDrawingArea, cr_in: ?*c.cairo_t, width: c_int, height: c_int, data: c.gpointer) callconv(.C) void {
     const self = get_self(data);
     const cs = self.cs orelse return;
@@ -204,7 +237,7 @@ fn ccolor(cval: u8) f64 {
 
 fn flush(self: *Self) !void {
     dbg("le flush\n", .{});
-    self.rpc.dump_grid();
+    // self.rpc.dump_grid();
 
     const grid = &self.rpc.ui.grid[0];
 
@@ -214,7 +247,7 @@ fn flush(self: *Self) !void {
     }
 
     if (self.rows != grid.rows or self.cols != grid.cols) {
-        dbg("le resize\n", .{});
+        dbg("le resize {} {}\n", .{ grid.rows, grid.cols });
         self.rows = grid.rows;
         self.cols = grid.cols;
         const width: c_int = @intCast(self.cols * self.cell_width);
@@ -222,8 +255,12 @@ fn flush(self: *Self) !void {
 
         dbg("LE METRICS {} {}\n", .{ width, height });
 
-        c.gtk_drawing_area_set_content_width(g.GTK_DRAWING_AREA(self.da), width);
-        c.gtk_drawing_area_set_content_height(g.GTK_DRAWING_AREA(self.da), height);
+        // TODO: more accurately check, current size compatible?
+        if (!self.did_resize) {
+            c.gtk_window_set_default_size(self.window, width, height);
+        }
+        // c.gtk_drawing_area_set_content_width(g.GTK_DRAWING_AREA(self.da), width);
+        // c.gtk_drawing_area_set_content_height(g.GTK_DRAWING_AREA(self.da), height);
 
         if (self.cs) |cs| {
             c.cairo_surface_destroy(cs);
@@ -255,7 +292,7 @@ fn flush(self: *Self) !void {
 
                 const attr = self.rpc.ui.attr.items[if (last_attr < self.rpc.ui.attr.items.len) last_attr else 0];
 
-                try self.draw_run(cr, row, begin, col - begin, grid.cell.items[basepos + begin .. basepos + col], attr, true);
+                try self.draw_run(cr, row, begin, col - begin, grid.cell.items[basepos + begin .. basepos + col], attr, false);
 
                 begin = col;
             }
@@ -393,10 +430,14 @@ fn init(self: *Self) !void {
     self.decoder = mpack.SkipDecoder{ .data = self.buf[0..0] };
     self.rpc = try RPCState.init(allocator);
 
+    const width: u32, const height: u32 = .{ 80, 25 };
+
     var encoder = mpack.encoder(self.enc_buf.writer());
-    try io.attach_test(&encoder, if (the_fd) |_| @as(i32, 3) else null);
+    try io.attach(&encoder, width, height, if (the_fd) |_| @as(i32, 3) else null);
     try self.child.stdin.?.writeAll(self.enc_buf.items);
     try self.enc_buf.resize(0);
+    self.requested_width = width;
+    self.requested_height = height;
 
     const gio = c.g_io_channel_unix_new(self.child.stdout.?.handle);
     _ = c.g_io_add_watch(gio, c.G_IO_IN, on_stdout, self);
@@ -411,11 +452,12 @@ fn activate(app: *c.GtkApplication, data: c.gpointer) callconv(.C) void {
 
     c.gtk_window_set_title(g.GTK_WINDOW(window), "Window");
     c.gtk_window_set_default_size(g.GTK_WINDOW(window), 200, 200);
-    const box: *c.GtkWidget = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 0);
-    c.gtk_window_set_child(g.GTK_WINDOW(window), box);
+    //const box: *c.GtkWidget = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 0);
+    // c.gtk_window_set_child(g.GTK_WINDOW(window), box);
     self.da = c.gtk_drawing_area_new();
-    c.gtk_drawing_area_set_content_width(g.GTK_DRAWING_AREA(self.da), 500);
-    c.gtk_drawing_area_set_content_height(g.GTK_DRAWING_AREA(self.da), 500);
+    _ = g.g_signal_connect(self.da, "resize", g.G_CALLBACK(&area_resize), self);
+    // c.gtk_drawing_area_set_content_width(g.GTK_DRAWING_AREA(self.da), 500);
+    // c.gtk_drawing_area_set_content_height(g.GTK_DRAWING_AREA(self.da), 500);
     c.gtk_drawing_area_set_draw_func(g.GTK_DRAWING_AREA(self.da), &redraw_area, self, null);
     const key_ev = c.gtk_event_controller_key_new();
     c.gtk_widget_add_controller(window, key_ev);
@@ -442,9 +484,12 @@ fn activate(app: *c.GtkApplication, data: c.gpointer) callconv(.C) void {
     c.gtk_widget_set_focusable(self.da, 1);
 
     //_ = g.g_signal_connect_swapped(self.da, "clicked", g.G_CALLBACK(c.gtk_window_destroy), window);
-    c.gtk_box_append(g.GTK_BOX(box), self.da);
+    // c.gtk_box_append(g.GTK_BOX(box), self.da);
+
+    c.gtk_window_set_child(g.GTK_WINDOW(window), self.da);
     c.gtk_widget_show(window);
 }
+
 pub fn main() u8 {
     // TODO: can we refer directly to .gpa in further fields?
     var self = Self{ .gpa = std.heap.GeneralPurposeAllocator(.{}){} };

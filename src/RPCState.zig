@@ -176,7 +176,7 @@ fn redraw_event(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     if (nitems < 1) return error.MalformatedRPCMessage;
     const name = try decoder.expectString();
 
-    dbg("EVENT: '{s}' with {}\n", .{ name, nitems - 1 });
+    // dbg("EVENT: '{s}' with {}\n", .{ name, nitems - 1 });
 
     base_decoder.consumed(decoder);
     self.redraw_events -= 1;
@@ -221,11 +221,12 @@ fn redraw_call(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
 
 fn hl_attr_define(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     var decoder = try base_decoder.inner();
+    const debug = false;
 
     const nsize = try decoder.expectArray();
     const id = try decoder.expectUInt();
     const rgb_attrs = try decoder.expectMap();
-    dbg("ATTEN: {} {}", .{ id, rgb_attrs });
+    if (debug) dbg("ATTEN: {} {}", .{ id, rgb_attrs });
     var fg: ?u24 = null;
     var bg: ?u24 = null;
     var bold = false;
@@ -237,22 +238,22 @@ fn hl_attr_define(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
         switch (key) {
             .foreground => {
                 const num = try decoder.expectUInt();
-                dbg(" fg={}", .{num});
+                if (debug) dbg(" fg={}", .{num});
                 fg = @intCast(num);
             },
             .background => {
                 const num = try decoder.expectUInt();
-                dbg(" bg={}", .{num});
+                if (debug) dbg(" bg={}", .{num});
                 bg = @intCast(num);
             },
             .bold => {
                 // TODO: expectBööööl
                 _ = try decoder.readHead();
-                dbg(" BOLDEN", .{});
+                if (debug) dbg(" BOLDEN", .{});
                 bold = true;
             },
             .Unknown => {
-                dbg(" {s}", .{name});
+                if (debug) dbg(" {s}", .{name});
                 // if this is the only skipAny, maybe this loop should be a state lol
                 try decoder.skipAny(1);
             },
@@ -274,7 +275,7 @@ fn hl_attr_define(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     }
     const endpos: u32 = @intCast(self.ui.attr_arena.items.len);
     try putAt(&self.ui.attr, id, .{ .start = pos, .end = endpos, .fg = fg, .bg = bg });
-    dbg("\n", .{});
+    if (debug) dbg("\n", .{});
 
     base_decoder.consumed(decoder);
     base_decoder.toSkip(nsize - 2);
