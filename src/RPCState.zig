@@ -128,7 +128,7 @@ pub fn init(allocator: mem.Allocator) !Self {
 }
 
 pub fn process(self: *Self, decoder: *mpack.SkipDecoder) !void {
-    std.debug.print("haii {}\n", .{decoder.data.len});
+    // dbg("haii {}\n", .{decoder.data.len});
 
     while (true) {
         try decoder.skipData();
@@ -428,7 +428,6 @@ fn next_cell(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
 
     while (s.ncells > 0) {
         var decoder = try base_decoder.inner();
-
         const nsize = try decoder.expectArray();
         const str = try decoder.expectString();
         var used: u8 = 1;
@@ -441,6 +440,7 @@ fn next_cell(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
                 used = 3;
             }
         }
+        base_decoder.consumed(decoder);
 
         const cell_text: CellText = try self.ui.intern_glyph(str);
         const basepos = s.row * s.grid.cols;
@@ -453,10 +453,9 @@ fn next_cell(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
         // dbg("used {} out of {} to get str {s} attr={} x {}\n", .{ used, nsize, str, s.attr_id, repeat });
 
         s.ncells -= 1;
-        base_decoder.consumed(decoder);
     }
 
     base_decoder.toSkip(s.event_extra_args);
-    try base_decoder.skipData();
     self.state = .redraw_call;
+    try base_decoder.skipData();
 }

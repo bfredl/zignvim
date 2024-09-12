@@ -132,7 +132,17 @@ fn doCommit(self: *Self, str: []const u8) !void {
     dbg("aha: {s}\n", .{str});
     const encoder = mpack.encoder(self.enc_buf.writer());
     try io.unsafe_input(encoder, str);
-    try self.child.stdin.?.writeAll(self.enc_buf.items);
+    try self.flush_input();
+}
+
+fn flush_input(self: *Self) !void {
+    self.child.stdin.?.writeAll(self.enc_buf.items) catch |err| switch (err) {
+        error.BrokenPipe => {
+            // Nvim exited. we will handle this later
+            @panic("handle nvim exit somehowe reasonable");
+        },
+        else => |e| return e,
+    };
     try self.enc_buf.resize(0);
 }
 
@@ -173,11 +183,11 @@ fn on_stdout(_: ?*c.GIOChannel, cond: c.GIOCondition, data: c.gpointer) callconv
         self.rpc.process(&self.decoder) catch |err| {
             switch (err) {
                 error.EOFError => {
-                    std.debug.print("!!interrupted. {} bytes left in state {}\n", .{ self.decoder.data.len, self.rpc.state });
+                    // dbg("!!interrupted. {} bytes left in state {}\n", .{ self.decoder.data.len, self.rpc.state });
                     break;
                 },
                 error.FlushCondition => {
-                    std.debug.print("!!flushed. but {} bytes left in state {}\n", .{ self.decoder.data.len, self.rpc.state });
+                    // dbg("!!flushed. but {} bytes left in state {}\n", .{ self.decoder.data.len, self.rpc.state });
                     self.flush() catch @panic("NotLikeThis");
                     continue; // there might be more data after the flush
                 },
@@ -208,13 +218,12 @@ fn onResize(self: *Self, width: u32, height: u32) !void {
     if (new_width != self.requested_width or new_height != self.requested_height) {
         var encoder = mpack.encoder(self.enc_buf.writer());
         try io.try_resize(&encoder, 1, new_width, new_height);
-        try self.child.stdin.?.writeAll(self.enc_buf.items);
-        try self.enc_buf.resize(0);
+        try self.flush_input();
         self.requested_width = new_width;
         self.requested_height = new_height;
-        dbg("was requested: {} {}\n", .{ new_width, new_height });
+        // dbg("was requested: {} {}\n", .{ new_width, new_height });
     } else {
-        dbg("unrequested resize: {} {}\n", .{ new_width, new_height });
+        // dbg("unrequested resize: {} {}\n", .{ new_width, new_height });
     }
 }
 
@@ -436,6 +445,7 @@ fn init(self: *Self) !void {
     try io.attach(&encoder, width, height, if (the_fd) |_| @as(i32, 3) else null);
     try self.child.stdin.?.writeAll(self.enc_buf.items);
     try self.enc_buf.resize(0);
+
     self.requested_width = width;
     self.requested_height = height;
 
