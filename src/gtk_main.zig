@@ -249,7 +249,8 @@ fn flush(self: *Self) !void {
     // dbg("le flush\n", .{});
     // self.rpc.dump_grid();
 
-    const grid = &self.rpc.ui.grid[0];
+    const ui = &self.rpc.ui;
+    const grid = &ui.grid[0];
 
     // TODO: the right condition for "font[size] changed"
     if (self.cell_height == 0) {
@@ -300,7 +301,7 @@ fn flush(self: *Self) !void {
             if (new) {
                 // dbg("{}-{}, ", .{ begin, col });
 
-                const attr = self.rpc.ui.attr.items[if (last_attr < self.rpc.ui.attr.items.len) last_attr else 0];
+                const attr = ui.attr.items[if (last_attr < ui.attr.items.len) last_attr else 0];
 
                 try self.draw_run(cr, row, begin, col - begin, grid.cell.items[basepos + begin .. basepos + col], attr, false);
 
@@ -308,6 +309,30 @@ fn flush(self: *Self) !void {
             }
         }
         // dbg("\n", .{});
+    }
+
+    {
+        const m = ui.mode();
+        var p_width: u8 = 100;
+        var p_height: u8 = 100;
+        switch (m.cursor_shape) {
+            .horizontal => p_height = m.cell_percentage,
+            .vertical => p_width = m.cell_percentage,
+            .block => {},
+        }
+        const pos: c.GdkRectangle = .{
+            .x = @intCast(self.cell_width * ui.cursor.col),
+            .y = @intCast(ui.cursor.row * self.cell_height + @divTrunc(self.cell_height * (100 - p_height), 100)),
+            .width = @intCast(@divTrunc(self.cell_width * p_width, 100)),
+            .height = @intCast(@divTrunc(self.cell_height * p_height, 100)),
+        };
+        c.gdk_cairo_rectangle(cr, &pos);
+        // const bg: RGB = @bitCast(attr.bg orelse self.rpc.ui.default_colors.bg);
+        const bg: RGB = @bitCast(self.rpc.ui.default_colors.fg);
+        // dbg("cur_bg is {}\n", .{bg});
+        // dbg("{}<-{}, ", .{ pos, bg });
+        c.cairo_set_source_rgba(cr, ccolor(bg.r), ccolor(bg.g), ccolor(bg.b), 0.8);
+        c.cairo_fill(cr);
     }
 
     c.gtk_widget_queue_draw(g.GTK_WIDGET(self.da));

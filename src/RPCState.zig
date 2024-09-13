@@ -263,7 +263,9 @@ fn mode_change(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     const mode = try decoder.expectString();
     const mode_idx = try decoder.expectUInt();
 
-    dbg("MODE {s} with {}\n", .{ mode, self.ui.mode_info.items[mode_idx] });
+    // dbg("MODE {s} with {}\n", .{ mode, self.ui.mode_info.items[mode_idx] });
+    _ = mode;
+    self.ui.mode_idx = @intCast(mode_idx);
 
     base_decoder.consumed(decoder);
     base_decoder.toSkip(iarg - 2);

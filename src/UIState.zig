@@ -29,6 +29,9 @@ pub const ModeInfo = struct {
     cell_percentage: u8 = 100,
     short_name: [2]u8 = .{ '?', '?' },
 };
+pub fn mode(self: *Self) ModeInfo {
+    return if (self.mode_info.items.len > self.mode_idx) self.mode_info.items[self.mode_idx] else .{};
+}
 
 pub const Grid = struct {
     rows: u16 = 0,
