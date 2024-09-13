@@ -28,10 +28,10 @@ fn doColors(w: anytype, fg: bool, rgb: UIState.RGB) !void {
     try w.print("\x1b[{s}8;2;{};{};{}m", .{ kod, rgb.r, rgb.g, rgb.b });
 }
 
-fn putAt(array_list: anytype, index: usize, item: anytype) !void {
+fn putAt(allocator: mem.Allocator, array_list: anytype, index: usize, item: anytype) !void {
     if (array_list.items.len < index + 1) {
         // TODO: safe fill with attr[0] values!
-        try array_list.resize(index + 1);
+        try array_list.resize(allocator, index + 1);
     }
     array_list.items[index] = item;
 }
@@ -119,16 +119,9 @@ fn redraw_call(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
         return;
     }
     self.state = .redraw_call;
-    switch (self.event) {
-        .hl_attr_define => try self.hl_attr_define(base_decoder),
-        .grid_resize => try self.grid_resize(base_decoder),
-        .grid_clear => try self.grid_clear(base_decoder),
-        .grid_line => try self.grid_line(base_decoder),
-        .grid_cursor_goto => try self.grid_cursor_goto(base_decoder),
-        .default_colors_set => try self.default_colors_set(base_decoder),
-        .mode_info_set => try self.mode_info_set(base_decoder),
-        .flush => try self.flush(base_decoder),
-    }
+    try switch (self.event) {
+        inline else => |tag| @field(Self, @tagName(tag))(self, base_decoder),
+    };
 }
 
 fn hl_attr_define(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
@@ -172,7 +165,7 @@ fn hl_attr_define(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
         }
     }
     const pos: u32 = @intCast(self.ui.attr_arena.items.len);
-    const w = self.ui.attr_arena.writer();
+    const w = self.ui.attr_arena.writer(self.ui.allocator);
     try w.writeAll("\x1b[0m");
     if (fg) |the_fg| {
         const rgb: UIState.RGB = @bitCast(the_fg);
@@ -186,7 +179,7 @@ fn hl_attr_define(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
         try w.writeAll("\x1b[1m");
     }
     const endpos: u32 = @intCast(self.ui.attr_arena.items.len);
-    try putAt(&self.ui.attr, id, .{ .start = pos, .end = endpos, .fg = fg, .bg = bg });
+    try putAt(self.ui.allocator, &self.ui.attr, id, .{ .start = pos, .end = endpos, .fg = fg, .bg = bg });
     if (debug) dbg("\n", .{});
 
     base_decoder.consumed(decoder);
@@ -263,7 +256,7 @@ fn grid_resize(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     grid.cols = @intCast(try decoder.expectUInt());
     grid.rows = @intCast(try decoder.expectUInt());
 
-    try grid.cell.resize(grid.rows * grid.cols);
+    try grid.cell.resize(self.ui.allocator, grid.rows * grid.cols);
 
     base_decoder.consumed(decoder);
     base_decoder.toSkip(iarg - 3);

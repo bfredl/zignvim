@@ -4,15 +4,15 @@ const Self = @This();
 const dbg = std.debug.print;
 
 allocator: mem.Allocator,
-attr_arena: std.ArrayList(u8),
+attr_arena: std.ArrayListUnmanaged(u8) = .{},
 glyph_arena: std.ArrayListUnmanaged(u8) = .{},
 glyph_cache: std.HashMapUnmanaged(u32, void, std.hash_map.StringIndexContext, std.hash_map.default_max_load_percentage) = .{},
-attr: std.ArrayList(Attr),
+attr: std.ArrayListUnmanaged(Attr) = .{},
 
 cursor: struct { grid: u32, row: u16, col: u16 } = undefined,
 default_colors: struct { fg: u24, bg: u24, sp: u24 } = undefined,
 
-grid: [1]Grid,
+grid: [1]Grid = .{.{}},
 
 pub const Attr = struct {
     start: u32,
@@ -22,9 +22,9 @@ pub const Attr = struct {
 };
 
 pub const Grid = struct {
-    rows: u16,
-    cols: u16,
-    cell: std.ArrayList(Cell),
+    rows: u16 = 0,
+    cols: u16 = 0,
+    cell: std.ArrayListUnmanaged(Cell) = .{},
 };
 
 // base charsize
@@ -48,13 +48,11 @@ pub const Cell = struct {
 pub const RGB = packed struct { b: u8, g: u8, r: u8 };
 
 pub fn init(allocator: mem.Allocator) !Self {
-    var attr: std.ArrayList(Attr) = .init(allocator);
-    try attr.append(Attr{ .start = 0, .end = 0, .fg = null, .bg = null });
+    var attr: std.ArrayListUnmanaged(Attr) = .{};
+    try attr.append(allocator, Attr{ .start = 0, .end = 0, .fg = null, .bg = null });
     return .{
         .allocator = allocator,
-        .attr_arena = .init(allocator),
         .attr = attr,
-        .grid = .{.{ .rows = 0, .cols = 0, .cell = .init(allocator) }},
     };
 }
 
