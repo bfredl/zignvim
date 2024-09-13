@@ -104,6 +104,7 @@ fn redraw_event(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
 const RedrawEvents = enum {
     hl_attr_define,
     mode_info_set,
+    mode_change,
     grid_resize,
     grid_clear,
     grid_line,
@@ -152,10 +153,8 @@ fn hl_attr_define(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
                 bg = @intCast(num);
             },
             .bold => {
-                // TODO: expectBööööl
-                _ = try decoder.readHead();
+                bold = try decoder.expectBool();
                 if (debug) dbg(" BOLDEN", .{});
-                bold = true;
             },
             .Unknown => {
                 if (debug) dbg(" {s}", .{name});
@@ -206,6 +205,9 @@ fn mode_info_set(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     base_decoder.consumed(decoder);
     self.event_calls -= 1;
 
+    try self.ui.mode_info.ensureTotalCapacity(self.ui.allocator, n_modes);
+    self.ui.mode_info.items.len = 0;
+
     try self.next_mode(base_decoder);
 }
 
@@ -217,17 +219,27 @@ fn next_mode(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     while (s.n_modes > 0) {
         var decoder = try base_decoder.inner();
         const nsize = try decoder.expectMap();
+        var mode: UIState.ModeInfo = .{};
         for (0..nsize) |_| {
-            const name = try decoder.expectString();
-            const Keys = enum { cursor_shape, Unknown };
-            const key = stringToEnum(Keys, name) orelse .Unknown;
-            switch (key) {
+            const key = try decoder.expectString();
+            const Keys = enum { name, cursor_shape, cell_percentage, Unknown };
+            switch (stringToEnum(Keys, key) orelse .Unknown) {
+                .name => {
+                    const name = try decoder.expectString();
+                    if (debug) dbg("FOR mODE {s}: ", .{name});
+                },
                 .cursor_shape => {
                     const kinda = try decoder.expectString();
                     if (debug) dbg(" shape={s}", .{kinda});
+                    mode.cursor_shape = stringToEnum(UIState.CursorShape, kinda) orelse .block;
+                },
+                .cell_percentage => {
+                    const ival = try decoder.expectUInt();
+                    if (debug) dbg(" CELL={}", .{ival});
+                    mode.cell_percentage = @truncate(ival);
                 },
                 .Unknown => {
-                    if (debug) dbg(" {s}", .{name});
+                    if (debug) dbg(" {s}", .{key});
                     // skipAny is bull, this should also be a state :p
                     try decoder.skipAny(1);
                 },
@@ -236,12 +248,26 @@ fn next_mode(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
 
         base_decoder.consumed(decoder);
         if (debug) dbg("\n", .{});
+        self.ui.mode_info.appendAssumeCapacity(mode);
         s.n_modes -= 1;
     }
 
     base_decoder.toSkip(s.event_extra_args);
     self.state = .redraw_call;
     try base_decoder.skipData();
+}
+
+fn mode_change(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
+    var decoder = try base_decoder.inner();
+    const iarg = try decoder.expectArray();
+    const mode = try decoder.expectString();
+    const mode_idx = try decoder.expectUInt();
+
+    dbg("MODE {s} with {}\n", .{ mode, self.ui.mode_info.items[mode_idx] });
+
+    base_decoder.consumed(decoder);
+    base_decoder.toSkip(iarg - 2);
+    self.event_calls -= 1;
 }
 
 fn grid_resize(self: *Self, base_decoder: *mpack.SkipDecoder) !void {

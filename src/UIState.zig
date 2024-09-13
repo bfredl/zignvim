@@ -8,6 +8,8 @@ attr_arena: std.ArrayListUnmanaged(u8) = .{},
 glyph_arena: std.ArrayListUnmanaged(u8) = .{},
 glyph_cache: std.HashMapUnmanaged(u32, void, std.hash_map.StringIndexContext, std.hash_map.default_max_load_percentage) = .{},
 attr: std.ArrayListUnmanaged(Attr) = .{},
+mode_info: std.ArrayListUnmanaged(ModeInfo) = .{},
+mode_idx: u32 = 0,
 
 cursor: struct { grid: u32, row: u16, col: u16 } = undefined,
 default_colors: struct { fg: u24, bg: u24, sp: u24 } = undefined,
@@ -19,6 +21,13 @@ pub const Attr = struct {
     end: u32,
     fg: ?u24,
     bg: ?u24,
+};
+
+pub const CursorShape = enum { block, horizontal, vertical };
+pub const ModeInfo = struct {
+    cursor_shape: CursorShape = .block,
+    cell_percentage: u8 = 100,
+    short_name: [2]u8 = .{ '?', '?' },
 };
 
 pub const Grid = struct {

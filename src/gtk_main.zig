@@ -64,7 +64,7 @@ fn onKeyPress(self: *Self, keyval: c.guint, mod: c.guint) !void {
     var x: [4]u8 = undefined;
 
     const codepoint = c.gdk_keyval_to_unicode(keyval);
-    dbg("Hellooooo! {} {} {}\n", .{ keyval, mod, codepoint });
+    // dbg("Hellooooo! {} {} {}\n", .{ keyval, mod, codepoint });
     if (codepoint == 0 or codepoint > std.math.maxInt(u21)) {
         return;
     }
@@ -130,7 +130,7 @@ fn onMousePress(self: *Self, gesture: *c.GtkGesture, n_press: c.guint, x: c.gdou
 }
 
 fn doCommit(self: *Self, str: []const u8) !void {
-    dbg("aha: {s}\n", .{str});
+    // dbg("aha: {s}\n", .{str});
     const encoder = mpack.encoder(self.enc_buf.writer());
     try io.unsafe_input(encoder, str);
     try self.flush_input();
@@ -246,7 +246,7 @@ fn ccolor(cval: u8) f64 {
 }
 
 fn flush(self: *Self) !void {
-    dbg("le flush\n", .{});
+    // dbg("le flush\n", .{});
     // self.rpc.dump_grid();
 
     const grid = &self.rpc.ui.grid[0];
