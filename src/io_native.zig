@@ -98,7 +98,7 @@ pub fn dummy_loop(stdout: anytype, allocator: mem.Allocator) !void {
                     },
                     error.FlushCondition => {
                         std.debug.print("!!flushed. but {} bytes left in state {}\n", .{ decoder.data.len, rpc.state });
-                        rpc.dump_grid();
+                        rpc.ui.dump_grid();
                         continue; // there might be more data after the flush
                     },
                     else => |e| return e,

@@ -239,6 +239,13 @@ pub const InnerDecoder = struct {
         }
     }
 
+    pub fn expectBool(self: *Self) MpackError!bool {
+        switch (try self.readHead()) {
+            .Bool => |val| return val,
+            else => return error.UnexpectedTagError,
+        }
+    }
+
     pub fn expectString(self: *Self) MpackError![]u8 {
         const size = switch (try self.readHead()) {
             .Str => |size| size,

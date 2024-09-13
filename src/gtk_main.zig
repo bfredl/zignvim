@@ -3,10 +3,11 @@ const c = @import("gtk_c.zig");
 const g = @import("gtk_lib.zig");
 const io = @import("io_native.zig");
 const RPCState = @import("RPCState.zig");
+const UIState = @import("UIState.zig");
 const mem = std.mem;
 const os = std.os;
 
-const RGB = RPCState.RGB;
+const RGB = UIState.RGB;
 
 const ArrayList = std.ArrayList;
 const mpack = @import("./mpack.zig");
@@ -312,7 +313,7 @@ fn flush(self: *Self) !void {
     c.gtk_widget_queue_draw(g.GTK_WIDGET(self.da));
 }
 
-fn draw_run(self: *Self, cr: *c.cairo_t, row: usize, col: usize, bg_width: usize, cells: []RPCState.Cell, attr: RPCState.Attr, debug: bool) !void {
+fn draw_run(self: *Self, cr: *c.cairo_t, row: usize, col: usize, bg_width: usize, cells: []UIState.Cell, attr: UIState.Attr, debug: bool) !void {
     const pos: c.GdkRectangle = .{
         .x = @intCast(self.cell_width * col),
         .y = @intCast(row * self.cell_height),

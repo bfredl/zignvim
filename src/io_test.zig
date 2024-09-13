@@ -14,7 +14,7 @@ pub fn main() !void {
     var x = ByteArray.init(gpa.allocator());
     defer x.deinit();
     var encoder = mpack.encoder(x.writer());
-    try io_native.attach_test(&encoder, null);
+    try io_native.attach(&encoder, 80, 25, null);
     try child.stdin.?.writeAll(x.items);
 
     try io_native.dummy_loop(&child.stdout.?, gpa.allocator());

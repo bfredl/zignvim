@@ -1,6 +1,6 @@
 const std = @import("std");
 const mpack = @import("./mpack.zig");
-const ArrayList = std.ArrayList;
+const UIState = @import("./UIState.zig");
 const mem = std.mem;
 const stringToEnum = std.meta.stringToEnum;
 const Self = @This();
@@ -11,6 +11,7 @@ const State = enum {
     redraw_event,
     redraw_call,
     next_cell,
+    next_mode,
 };
 
 state: State = .next_msg,
@@ -18,90 +19,11 @@ event: RedrawEvents = undefined,
 
 redraw_events: u64 = 0,
 event_calls: u64 = 0,
-cell_state: CellState = undefined,
+event_state: union { cell: CellState, mode: ModeState } = undefined,
 
-ui: struct {
-    allocator: mem.Allocator,
-    attr_arena: ArrayList(u8),
-    glyph_arena: std.ArrayListUnmanaged(u8) = .{},
-    glyph_cache: std.HashMapUnmanaged(u32, void, std.hash_map.StringIndexContext, std.hash_map.default_max_load_percentage) = .{},
-    attr: ArrayList(Attr),
+ui: UIState,
 
-    cursor: struct { grid: u32, row: u16, col: u16 } = undefined,
-    default_colors: struct { fg: u24, bg: u24, sp: u24 } = undefined,
-
-    grid: [1]Grid,
-
-    pub fn text(self: *@This(), cell: *const Cell) []const u8 {
-        return switch (cell.text) {
-            // oo I eat plain toast
-            .plain => |str| str[0 .. std.mem.indexOfScalar(u8, &str, 0) orelse charsize],
-            .indexed => |idx| mem.span(@as([*:0]u8, @ptrCast(self.glyph_arena.items[idx..]))),
-        };
-    }
-
-    fn intern_glyph(self: *@This(), str: []const u8) !CellText {
-        if (str.len <= charsize) {
-            var char: [charsize]u8 = undefined;
-            for (0..str.len) |i| {
-                char[i] = str[i];
-            }
-            if (str.len < charsize) {
-                char[str.len] = 0;
-            }
-            return .{ .plain = char };
-        }
-        const gop = try self.glyph_cache.getOrPutContextAdapted(self.allocator, str, std.hash_map.StringIndexAdapter{
-            .bytes = &self.glyph_arena,
-        }, std.hash_map.StringIndexContext{
-            .bytes = &self.glyph_arena,
-        });
-        if (gop.found_existing) {
-            return .{ .indexed = gop.key_ptr.* };
-        } else {
-            const str_index: u32 = @intCast(self.glyph_arena.items.len);
-            gop.key_ptr.* = str_index;
-            try self.glyph_arena.appendSlice(self.allocator, str);
-            try self.glyph_arena.append(self.allocator, 0);
-            return .{ .indexed = str_index };
-        }
-    }
-},
-
-pub const Attr = struct {
-    start: u32,
-    end: u32,
-    fg: ?u24,
-    bg: ?u24,
-};
-
-const Grid = struct {
-    rows: u16,
-    cols: u16,
-    cell: ArrayList(Cell),
-};
-
-// base charsize
-const charsize = 4;
-
-const CellText = union(enum) { plain: [charsize]u8, indexed: u32 };
-
-pub const Cell = struct {
-    // TODO: use compression trick like in nvim to avoid the tag byte
-    text: CellText,
-    attr_id: u32,
-
-    pub fn is_ascii_space(self: Cell) bool {
-        return switch (self.text) {
-            .indexed => false,
-            .plain => |txt| mem.eql(u8, txt[0..2], &.{ 32, 0 }),
-        };
-    }
-};
-
-pub const RGB = packed struct { b: u8, g: u8, r: u8 };
-
-fn doColors(w: anytype, fg: bool, rgb: RGB) !void {
+fn doColors(w: anytype, fg: bool, rgb: UIState.RGB) !void {
     const kod = if (fg) "3" else "4";
     try w.print("\x1b[{s}8;2;{};{};{}m", .{ kod, rgb.r, rgb.g, rgb.b });
 }
@@ -115,16 +37,7 @@ fn putAt(array_list: anytype, index: usize, item: anytype) !void {
 }
 
 pub fn init(allocator: mem.Allocator) !Self {
-    var attr: ArrayList(Attr) = .init(allocator);
-    try attr.append(Attr{ .start = 0, .end = 0, .fg = null, .bg = null });
-    return .{
-        .ui = .{
-            .allocator = allocator,
-            .attr_arena = .init(allocator),
-            .attr = attr,
-            .grid = .{.{ .rows = 0, .cols = 0, .cell = .init(allocator) }},
-        },
-    };
+    return .{ .ui = try .init(allocator) };
 }
 
 pub fn process(self: *Self, decoder: *mpack.SkipDecoder) !void {
@@ -137,10 +50,7 @@ pub fn process(self: *Self, decoder: *mpack.SkipDecoder) !void {
         if (decoder.data.len == 0) break;
 
         try switch (self.state) {
-            .next_msg => self.next_msg(decoder),
-            .redraw_event => self.redraw_event(decoder),
-            .redraw_call => self.redraw_call(decoder),
-            .next_cell => self.next_cell(decoder),
+            inline else => |tag| @field(Self, @tagName(tag))(self, decoder),
         };
     }
 }
@@ -193,6 +103,7 @@ fn redraw_event(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
 
 const RedrawEvents = enum {
     hl_attr_define,
+    mode_info_set,
     grid_resize,
     grid_clear,
     grid_line,
@@ -215,6 +126,7 @@ fn redraw_call(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
         .grid_line => try self.grid_line(base_decoder),
         .grid_cursor_goto => try self.grid_cursor_goto(base_decoder),
         .default_colors_set => try self.default_colors_set(base_decoder),
+        .mode_info_set => try self.mode_info_set(base_decoder),
         .flush => try self.flush(base_decoder),
     }
 }
@@ -263,11 +175,11 @@ fn hl_attr_define(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     const w = self.ui.attr_arena.writer();
     try w.writeAll("\x1b[0m");
     if (fg) |the_fg| {
-        const rgb: RGB = @bitCast(the_fg);
+        const rgb: UIState.RGB = @bitCast(the_fg);
         try doColors(w, true, rgb);
     }
     if (bg) |the_bg| {
-        const rgb: RGB = @bitCast(the_bg);
+        const rgb: UIState.RGB = @bitCast(the_bg);
         try doColors(w, false, rgb);
     }
     if (bold) {
@@ -280,6 +192,63 @@ fn hl_attr_define(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     base_decoder.consumed(decoder);
     base_decoder.toSkip(nsize - 2);
     self.event_calls -= 1;
+}
+
+const ModeState = struct {
+    event_extra_args: usize,
+    n_modes: u32,
+};
+
+fn mode_info_set(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
+    var decoder = try base_decoder.inner();
+    const iarg = try decoder.expectArray();
+    const cursor_style = try decoder.expectBool();
+    _ = cursor_style;
+    const n_modes = try decoder.expectArray();
+
+    self.event_state = .{ .mode = .{
+        .event_extra_args = iarg - 2,
+        .n_modes = n_modes,
+    } };
+    base_decoder.consumed(decoder);
+    self.event_calls -= 1;
+
+    try self.next_mode(base_decoder);
+}
+
+fn next_mode(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
+    const s = &self.event_state.mode;
+    self.state = .next_mode;
+    const debug = true;
+
+    while (s.n_modes > 0) {
+        var decoder = try base_decoder.inner();
+        const nsize = try decoder.expectMap();
+        for (0..nsize) |_| {
+            const name = try decoder.expectString();
+            const Keys = enum { cursor_shape, Unknown };
+            const key = stringToEnum(Keys, name) orelse .Unknown;
+            switch (key) {
+                .cursor_shape => {
+                    const kinda = try decoder.expectString();
+                    if (debug) dbg(" shape={s}", .{kinda});
+                },
+                .Unknown => {
+                    if (debug) dbg(" {s}", .{name});
+                    // skipAny is bull, this should also be a state :p
+                    try decoder.skipAny(1);
+                },
+            }
+        }
+
+        base_decoder.consumed(decoder);
+        if (debug) dbg("\n", .{});
+        s.n_modes -= 1;
+    }
+
+    base_decoder.toSkip(s.event_extra_args);
+    self.state = .redraw_call;
+    try base_decoder.skipData();
 }
 
 fn grid_resize(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
@@ -312,7 +281,7 @@ fn grid_clear(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     }
 
     const grid = &self.ui.grid[grid_id - 1];
-    var char: [charsize]u8 = undefined;
+    var char: [UIState.charsize]u8 = undefined;
     //char[0..2] = .{ ' ', 0 };
     char[0] = ' ';
     char[1] = 0;
@@ -361,33 +330,9 @@ fn flush(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     return error.FlushCondition;
 }
 
-pub fn dump_grid(self: *Self) void {
-    var attr_id: u32 = 0;
-    dbg("SCREEN begin ======\n", .{});
-    const grid = self.ui.grid[0];
-    for (0..grid.rows) |row| {
-        const basepos = row * grid.cols;
-        for (0..grid.cols) |col| {
-            const cell = grid.cell.items[basepos + col];
-
-            if (cell.attr_id != attr_id) {
-                attr_id = cell.attr_id;
-                const slice = if (attr_id > 0) theslice: {
-                    const islice = self.ui.attr.items[attr_id];
-                    break :theslice self.ui.attr_arena.items[islice.start..islice.end];
-                } else "\x1b[0m";
-                dbg("{s}", .{slice});
-            }
-            dbg("{s}", .{self.ui.text(&cell)});
-        }
-        dbg("\n", .{});
-    }
-    dbg("SCREEN end ======\n", .{});
-}
-
 const CellState = struct {
     event_extra_args: usize,
-    grid: *Grid,
+    grid: *UIState.Grid,
     row: u32,
     col: u32,
     ncells: u32,
@@ -407,14 +352,14 @@ fn grid_line(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
 
         // dbg("with line: {} {} has cells {} and extra {}\n", .{ row, col, ncells, iarg - 4 });
 
-        self.cell_state = .{
+        self.event_state = .{ .cell = .{
             .event_extra_args = iarg - 4,
             .grid = &self.ui.grid[grid_id - 1],
             .row = @intCast(row),
             .col = @intCast(col),
             .ncells = ncells,
             .attr_id = 0,
-        };
+        } };
         base_decoder.consumed(decoder);
         self.event_calls -= 1;
 
@@ -423,7 +368,7 @@ fn grid_line(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
 }
 
 fn next_cell(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
-    const s = &self.cell_state;
+    const s = &self.event_state.cell;
     self.state = .next_cell;
 
     while (s.ncells > 0) {
@@ -442,7 +387,7 @@ fn next_cell(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
         }
         base_decoder.consumed(decoder);
 
-        const cell_text: CellText = try self.ui.intern_glyph(str);
+        const cell_text = try self.ui.intern_glyph(str);
         const basepos = s.row * s.grid.cols;
         while (repeat > 0) : (repeat -= 1) {
             s.grid.cell.items[basepos + s.col] = .{ .text = cell_text, .attr_id = s.attr_id };
