@@ -4,19 +4,10 @@ const g = @import("gtk_lib.zig");
 const io = @import("io_native.zig");
 const RPCState = @import("RPCState.zig");
 const UIState = @import("UIState.zig");
-const mem = std.mem;
-const os = std.os;
-
-const RGB = UIState.RGB;
-
 const ArrayList = std.ArrayList;
 const mpack = @import("./mpack.zig");
-
 const dbg = std.debug.print;
-
 const Self = @This();
-
-const io_mode = std.io.Mode.evented;
 
 gpa: std.heap.GeneralPurposeAllocator(.{}),
 
@@ -123,7 +114,7 @@ fn onMousePress(self: *Self, gesture: *c.GtkGesture, n_press: c.guint, x: c.gdou
     const cr = c.cairo_create(self.cs) orelse @panic("bullllll");
     defer c.cairo_destroy(cr);
 
-    const attr = self.rpc.ui.attr.items[if (myattr < self.rpc.ui.attr.items.len) myattr else 0];
+    const attr = self.rpc.ui.attr(myattr);
     try self.draw_run(cr, row, first, end - first, gridrow[first..end], attr, true);
 
     // NB: redisplay if we actually change something
@@ -150,7 +141,7 @@ fn flush_input(self: *Self) !void {
 fn commit(_: *c.GtkIMContext, str: [*:0]const u8, data: c.gpointer) callconv(.C) void {
     var self = get_self(data);
 
-    self.doCommit(str[0..mem.len(str)]) catch @panic("It was a dream!");
+    self.doCommit(std.mem.span(str)) catch @panic("It was a dream!");
 }
 
 fn focus_enter(_: *c.GtkEventControllerFocus, data: c.gpointer) callconv(.C) void {
@@ -174,7 +165,7 @@ fn on_stdout(_: ?*c.GIOChannel, cond: c.GIOCondition, data: c.gpointer) callconv
     const oldlen = self.decoder.data.len;
     if (oldlen > 0 and self.decoder.data.ptr != &self.buf) {
         // TODO: avoid move if remaining space is plenty (like > 900)
-        mem.copyForwards(u8, &self.buf, self.decoder.data);
+        std.mem.copyForwards(u8, &self.buf, self.decoder.data);
     }
     var stdout = &self.child.stdout.?;
     const lenny = stdout.read(self.buf[oldlen..]) catch @panic("call for help");
@@ -301,7 +292,7 @@ fn flush(self: *Self) !void {
             if (new) {
                 // dbg("{}-{}, ", .{ begin, col });
 
-                const attr = ui.attr.items[if (last_attr < ui.attr.items.len) last_attr else 0];
+                const attr = ui.attr(last_attr);
 
                 try self.draw_run(cr, row, begin, col - begin, grid.cell.items[basepos + begin .. basepos + col], attr, false);
 
@@ -327,11 +318,17 @@ fn flush(self: *Self) !void {
             .height = @intCast(@divTrunc(self.cell_height * p_height, 100)),
         };
         c.gdk_cairo_rectangle(cr, &pos);
-        // const bg: RGB = @bitCast(attr.bg orelse self.rpc.ui.default_colors.bg);
-        const bg: RGB = @bitCast(self.rpc.ui.default_colors.fg);
+        var color = self.rpc.ui.default_colors.fg;
+        if (m.attr_id > 0) {
+            const attr = self.rpc.ui.attr(m.attr_id);
+            if (attr.bg) |bg| {
+                color = bg;
+            }
+            // TODO: blendy blendy blendy
+        }
         // dbg("cur_bg is {}\n", .{bg});
         // dbg("{}<-{}, ", .{ pos, bg });
-        c.cairo_set_source_rgba(cr, ccolor(bg.r), ccolor(bg.g), ccolor(bg.b), 0.8);
+        c.cairo_set_source_rgba(cr, ccolor(color.r), ccolor(color.g), ccolor(color.b), 0.8);
         c.cairo_fill(cr);
     }
 
@@ -347,7 +344,7 @@ fn draw_run(self: *Self, cr: *c.cairo_t, row: usize, col: usize, bg_width: usize
     };
     if (debug) dbg("ATTR {}\n", .{attr});
     c.gdk_cairo_rectangle(cr, &pos);
-    const bg: RGB = @bitCast(attr.bg orelse self.rpc.ui.default_colors.bg);
+    const bg = attr.bg orelse self.rpc.ui.default_colors.bg;
     if (debug) dbg("bg is {}\n", .{bg});
     // dbg("{}<-{}, ", .{ pos, bg });
     c.cairo_set_source_rgb(cr, ccolor(bg.r), ccolor(bg.g), ccolor(bg.b));
@@ -382,7 +379,7 @@ fn draw_run(self: *Self, cr: *c.cairo_t, row: usize, col: usize, bg_width: usize
 
     var item_list = c.pango_itemize(self.context, text.items.ptr, 0, @intCast(text.items.len), attr_list, null);
 
-    const fg: RGB = @bitCast(attr.fg orelse self.rpc.ui.default_colors.fg);
+    const fg = attr.fg orelse self.rpc.ui.default_colors.fg;
     if (debug) dbg("fg is {}\n", .{fg});
     // dbg("{}<-{}, ", .{ pos, bg });
     c.cairo_set_source_rgb(cr, ccolor(fg.r), ccolor(fg.g), ccolor(fg.b));
@@ -469,8 +466,7 @@ fn init(self: *Self) !void {
 
     var encoder = mpack.encoder(self.enc_buf.writer());
     try io.attach(&encoder, width, height, if (the_fd) |_| @as(i32, 3) else null);
-    try self.child.stdin.?.writeAll(self.enc_buf.items);
-    try self.enc_buf.resize(0);
+    try self.flush_input();
 
     self.requested_width = width;
     self.requested_height = height;

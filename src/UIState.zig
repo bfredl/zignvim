@@ -7,30 +7,34 @@ allocator: mem.Allocator,
 attr_arena: std.ArrayListUnmanaged(u8) = .{},
 glyph_arena: std.ArrayListUnmanaged(u8) = .{},
 glyph_cache: std.HashMapUnmanaged(u32, void, std.hash_map.StringIndexContext, std.hash_map.default_max_load_percentage) = .{},
-attr: std.ArrayListUnmanaged(Attr) = .{},
+attrs: std.ArrayListUnmanaged(Attr) = .{},
 mode_info: std.ArrayListUnmanaged(ModeInfo) = .{},
 mode_idx: u32 = 0,
 
 cursor: struct { grid: u32, row: u16, col: u16 } = undefined,
-default_colors: struct { fg: u24, bg: u24, sp: u24 } = undefined,
+default_colors: struct { fg: RGB, bg: RGB, sp: RGB } = undefined,
 
 grid: [1]Grid = .{.{}},
 
 pub const Attr = struct {
     start: u32,
     end: u32,
-    fg: ?u24,
-    bg: ?u24,
+    fg: ?RGB,
+    bg: ?RGB,
 };
 
 pub const CursorShape = enum { block, horizontal, vertical };
 pub const ModeInfo = struct {
     cursor_shape: CursorShape = .block,
     cell_percentage: u8 = 100,
+    attr_id: u32 = 0,
     short_name: [2]u8 = .{ '?', '?' },
 };
 pub fn mode(self: *Self) ModeInfo {
     return if (self.mode_info.items.len > self.mode_idx) self.mode_info.items[self.mode_idx] else .{};
+}
+pub fn attr(self: *Self, attr_id: u32) Attr {
+    return self.attrs.items[if (self.attrs.items.len > attr_id) attr_id else 0];
 }
 
 pub const Grid = struct {
@@ -60,11 +64,11 @@ pub const Cell = struct {
 pub const RGB = packed struct { b: u8, g: u8, r: u8 };
 
 pub fn init(allocator: mem.Allocator) !Self {
-    var attr: std.ArrayListUnmanaged(Attr) = .{};
-    try attr.append(allocator, Attr{ .start = 0, .end = 0, .fg = null, .bg = null });
+    var attrs: std.ArrayListUnmanaged(Attr) = .{};
+    try attrs.append(allocator, Attr{ .start = 0, .end = 0, .fg = null, .bg = null });
     return .{
         .allocator = allocator,
-        .attr = attr,
+        .attrs = attrs,
     };
 }
 
@@ -115,7 +119,7 @@ pub fn dump_grid(self: *Self) void {
             if (cell.attr_id != attr_id) {
                 attr_id = cell.attr_id;
                 const slice = if (attr_id > 0) theslice: {
-                    const islice = self.attr.items[attr_id];
+                    const islice = self.attrs.items[attr_id];
                     break :theslice self.attr_arena.items[islice.start..islice.end];
                 } else "\x1b[0m";
                 dbg("{s}", .{slice});

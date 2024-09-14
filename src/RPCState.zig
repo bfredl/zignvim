@@ -133,8 +133,8 @@ fn hl_attr_define(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     const id = try decoder.expectUInt();
     const rgb_attrs = try decoder.expectMap();
     if (debug) dbg("ATTEN: {} {}", .{ id, rgb_attrs });
-    var fg: ?u24 = null;
-    var bg: ?u24 = null;
+    var fg: ?UIState.RGB = null;
+    var bg: ?UIState.RGB = null;
     var bold = false;
     var j: u32 = 0;
     while (j < rgb_attrs) : (j += 1) {
@@ -145,12 +145,12 @@ fn hl_attr_define(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
             .foreground => {
                 const num = try decoder.expectUInt();
                 if (debug) dbg(" fg={}", .{num});
-                fg = @intCast(num);
+                fg = @bitCast(@as(u24, @intCast(num)));
             },
             .background => {
                 const num = try decoder.expectUInt();
                 if (debug) dbg(" bg={}", .{num});
-                bg = @intCast(num);
+                bg = @bitCast(@as(u24, @intCast(num)));
             },
             .bold => {
                 bold = try decoder.expectBool();
@@ -166,19 +166,17 @@ fn hl_attr_define(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     const pos: u32 = @intCast(self.ui.attr_arena.items.len);
     const w = self.ui.attr_arena.writer(self.ui.allocator);
     try w.writeAll("\x1b[0m");
-    if (fg) |the_fg| {
-        const rgb: UIState.RGB = @bitCast(the_fg);
+    if (fg) |rgb| {
         try doColors(w, true, rgb);
     }
-    if (bg) |the_bg| {
-        const rgb: UIState.RGB = @bitCast(the_bg);
+    if (bg) |rgb| {
         try doColors(w, false, rgb);
     }
     if (bold) {
         try w.writeAll("\x1b[1m");
     }
     const endpos: u32 = @intCast(self.ui.attr_arena.items.len);
-    try putAt(self.ui.allocator, &self.ui.attr, id, .{ .start = pos, .end = endpos, .fg = fg, .bg = bg });
+    try putAt(self.ui.allocator, &self.ui.attrs, id, .{ .start = pos, .end = endpos, .fg = fg, .bg = bg });
     if (debug) dbg("\n", .{});
 
     base_decoder.consumed(decoder);
@@ -222,7 +220,7 @@ fn next_mode(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
         var mode: UIState.ModeInfo = .{};
         for (0..nsize) |_| {
             const key = try decoder.expectString();
-            const Keys = enum { name, cursor_shape, cell_percentage, Unknown };
+            const Keys = enum { name, cursor_shape, cell_percentage, attr_id, Unknown };
             switch (stringToEnum(Keys, key) orelse .Unknown) {
                 .name => {
                     const name = try decoder.expectString();
@@ -237,6 +235,10 @@ fn next_mode(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
                     const ival = try decoder.expectUInt();
                     if (debug) dbg(" CELL={}", .{ival});
                     mode.cell_percentage = @truncate(ival);
+                },
+                .attr_id => {
+                    mode.attr_id = @intCast(try decoder.expectUInt());
+                    if (debug) dbg(" attr_id={}", .{mode.attr_id});
                 },
                 .Unknown => {
                     if (debug) dbg(" {s}", .{key});
@@ -337,7 +339,7 @@ fn default_colors_set(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     const bg: u24 = @intCast(try decoder.expectUInt());
     const sp: u24 = @intCast(try decoder.expectUInt());
 
-    self.ui.default_colors = .{ .fg = fg, .bg = bg, .sp = sp };
+    self.ui.default_colors = .{ .fg = @bitCast(fg), .bg = @bitCast(bg), .sp = @bitCast(sp) };
 
     base_decoder.consumed(decoder);
     base_decoder.toSkip(iarg - 3);
