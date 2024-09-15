@@ -344,7 +344,7 @@ fn draw_run(self: *Self, cr: *c.cairo_t, row: usize, col: usize, bg_width: usize
     };
     if (debug) dbg("ATTR {}\n", .{attr});
     c.gdk_cairo_rectangle(cr, &pos);
-    const bg = attr.bg orelse self.rpc.ui.default_colors.bg;
+    const bg, const fg = self.rpc.ui.get_colors(attr);
     if (debug) dbg("bg is {}\n", .{bg});
     // dbg("{}<-{}, ", .{ pos, bg });
     c.cairo_set_source_rgb(cr, ccolor(bg.r), ccolor(bg.g), ccolor(bg.b));
@@ -377,9 +377,25 @@ fn draw_run(self: *Self, cr: *c.cairo_t, row: usize, col: usize, bg_width: usize
     const attr_list = c.pango_attr_list_new();
     const glyphs = g.pango_glyph_string_new() orelse @panic("GLORT");
 
+    if (attr.bold) {
+        // TODO: only two font weights is soo 1990:s+L+ratio+cringe.
+        // map altfont to thinner and altfont+bold to U L T R A B O L D ?
+        const attr_item = c.pango_attr_weight_new(c.PANGO_WEIGHT_BOLD);
+        // NOTE: pango attrs can apply to subranges. by default they apply to the entire range
+        c.pango_attr_list_change(attr_list, attr_item);
+    }
+    if (attr.italic) {
+        const attr_item = c.pango_attr_style_new(c.PANGO_STYLE_ITALIC);
+        c.pango_attr_list_change(attr_list, attr_item);
+    }
+    if (attr.underline) {
+        // TODO: we probably want to emulate underlines ourselves for "special" color
+        const attr_item = c.pango_attr_underline_new(c.PANGO_UNDERLINE_SINGLE);
+        c.pango_attr_list_change(attr_list, attr_item);
+    }
+
     var item_list = c.pango_itemize(self.context, text.items.ptr, 0, @intCast(text.items.len), attr_list, null);
 
-    const fg = attr.fg orelse self.rpc.ui.default_colors.fg;
     if (debug) dbg("fg is {}\n", .{fg});
     // dbg("{}<-{}, ", .{ pos, bg });
     c.cairo_set_source_rgb(cr, ccolor(fg.r), ccolor(fg.g), ccolor(fg.b));

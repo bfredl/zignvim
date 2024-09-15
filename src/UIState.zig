@@ -17,10 +17,14 @@ default_colors: struct { fg: RGB, bg: RGB, sp: RGB } = undefined,
 grid: [1]Grid = .{.{}},
 
 pub const Attr = struct {
-    start: u32,
-    end: u32,
-    fg: ?RGB,
-    bg: ?RGB,
+    start: u32 = 0,
+    end: u32 = 0,
+    fg: ?RGB = null,
+    bg: ?RGB = null,
+    bold: bool = false,
+    italic: bool = false,
+    underline: bool = false,
+    reverse: bool = false,
 };
 
 pub const CursorShape = enum { block, horizontal, vertical };
@@ -35,6 +39,12 @@ pub fn mode(self: *Self) ModeInfo {
 }
 pub fn attr(self: *Self, attr_id: u32) Attr {
     return self.attrs.items[if (self.attrs.items.len > attr_id) attr_id else 0];
+}
+
+pub fn get_colors(self: *Self, a: Attr) struct { RGB, RGB } {
+    const bg = a.bg orelse self.default_colors.bg;
+    const fg = a.fg orelse self.default_colors.fg;
+    return if (a.reverse) .{ fg, bg } else .{ bg, fg };
 }
 
 pub const Grid = struct {
@@ -65,7 +75,7 @@ pub const RGB = packed struct { b: u8, g: u8, r: u8 };
 
 pub fn init(allocator: mem.Allocator) !Self {
     var attrs: std.ArrayListUnmanaged(Attr) = .{};
-    try attrs.append(allocator, Attr{ .start = 0, .end = 0, .fg = null, .bg = null });
+    try attrs.append(allocator, .{});
     return .{
         .allocator = allocator,
         .attrs = attrs,

@@ -133,28 +133,38 @@ fn hl_attr_define(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     const id = try decoder.expectUInt();
     const rgb_attrs = try decoder.expectMap();
     if (debug) dbg("ATTEN: {} {}", .{ id, rgb_attrs });
-    var fg: ?UIState.RGB = null;
-    var bg: ?UIState.RGB = null;
-    var bold = false;
+    var attr: UIState.Attr = .{};
     var j: u32 = 0;
     while (j < rgb_attrs) : (j += 1) {
         const name = try decoder.expectString();
-        const Keys = enum { foreground, background, bold, Unknown };
+        const Keys = enum { foreground, background, bold, italic, reverse, underline, Unknown };
         const key = stringToEnum(Keys, name) orelse .Unknown;
         switch (key) {
             .foreground => {
                 const num = try decoder.expectUInt();
                 if (debug) dbg(" fg={}", .{num});
-                fg = @bitCast(@as(u24, @intCast(num)));
+                attr.fg = @bitCast(@as(u24, @intCast(num)));
             },
             .background => {
                 const num = try decoder.expectUInt();
                 if (debug) dbg(" bg={}", .{num});
-                bg = @bitCast(@as(u24, @intCast(num)));
+                attr.bg = @bitCast(@as(u24, @intCast(num)));
             },
             .bold => {
-                bold = try decoder.expectBool();
+                attr.bold = try decoder.expectBool();
                 if (debug) dbg(" BOLDEN", .{});
+            },
+            .italic => {
+                attr.italic = try decoder.expectBool();
+                if (debug) dbg(" ITALIC", .{});
+            },
+            .reverse => {
+                attr.reverse = try decoder.expectBool();
+                if (debug) dbg(" REVERSE", .{});
+            },
+            .underline => {
+                attr.underline = try decoder.expectBool();
+                if (debug) dbg(" UNDERLAIN", .{});
             },
             .Unknown => {
                 if (debug) dbg(" {s}", .{name});
@@ -163,20 +173,20 @@ fn hl_attr_define(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
             },
         }
     }
-    const pos: u32 = @intCast(self.ui.attr_arena.items.len);
+    attr.start = @intCast(self.ui.attr_arena.items.len);
     const w = self.ui.attr_arena.writer(self.ui.allocator);
     try w.writeAll("\x1b[0m");
-    if (fg) |rgb| {
+    if (attr.fg) |rgb| {
         try doColors(w, true, rgb);
     }
-    if (bg) |rgb| {
+    if (attr.bg) |rgb| {
         try doColors(w, false, rgb);
     }
-    if (bold) {
+    if (attr.bold) {
         try w.writeAll("\x1b[1m");
     }
-    const endpos: u32 = @intCast(self.ui.attr_arena.items.len);
-    try putAt(self.ui.allocator, &self.ui.attrs, id, .{ .start = pos, .end = endpos, .fg = fg, .bg = bg });
+    attr.end = @intCast(self.ui.attr_arena.items.len);
+    try putAt(self.ui.allocator, &self.ui.attrs, id, attr);
     if (debug) dbg("\n", .{});
 
     base_decoder.consumed(decoder);
@@ -212,7 +222,7 @@ fn mode_info_set(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
 fn next_mode(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     const s = &self.event_state.mode;
     self.state = .next_mode;
-    const debug = true;
+    const debug = false;
 
     while (s.n_modes > 0) {
         var decoder = try base_decoder.inner();
