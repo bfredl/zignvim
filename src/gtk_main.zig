@@ -9,6 +9,8 @@ const mpack = @import("./mpack.zig");
 const dbg = std.debug.print;
 const Self = @This();
 
+const use_ibus = true;
+
 gpa: std.heap.GeneralPurposeAllocator(.{}),
 
 child: std.process.Child = undefined,
@@ -35,6 +37,10 @@ requested_width: u32 = 0,
 requested_height: u32 = 0,
 did_resize: bool = false,
 
+im_context: if (use_ibus) void else *c.GtkIMContext = undefined,
+ibus_context: if (use_ibus) *c.IBusInputContext else void = undefined,
+ibus_bus: if (use_ibus) *c.IBusBus else void = undefined,
+
 fn get_self(data: c.gpointer) *Self {
     return @ptrCast(@alignCast(data));
 }
@@ -43,6 +49,15 @@ fn key_pressed(_: *c.GtkEventControllerKey, keyval: c.guint, keycode: c.guint, m
     _ = keycode;
     const self = get_self(data);
     self.onKeyPress(keyval, mod) catch @panic("We live inside of a dream!");
+    return false;
+}
+
+fn key_released(_: *c.GtkEventControllerKey, keyval: c.guint, keycode: c.guint, mod: c.GdkModifierType, data: c.gpointer) callconv(.C) bool {
+    _ = keycode;
+    _ = mod;
+    _ = keyval;
+    const self = get_self(data);
+    _ = self;
     return false;
 }
 
@@ -139,21 +154,67 @@ fn flush_input(self: *Self) !void {
 }
 
 fn commit(_: *c.GtkIMContext, str: [*:0]const u8, data: c.gpointer) callconv(.C) void {
-    var self = get_self(data);
+    const self = get_self(data);
 
     self.doCommit(std.mem.span(str)) catch @panic("It was a dream!");
 }
 
+// private IBus implementation
+fn ibus_connected(bus: *c.IBusBus, data: c.gpointer) callconv(.C) void {
+    // const self = get_self(data);
+    // g_assert (self.ibus_context == null);
+    // g_return_if_fail (ibusimcontext->cancellable == NULL);
+    // ibusimcontext->cancellable = g_cancellable_new ();
+
+    c.ibus_bus_create_input_context_async(bus, "zignvim-im", -1, null, // ibusimcontext->cancellable,
+        &ibus_input_context_created, data);
+}
+
+fn ibus_input_context_created(_: [*c]c.GObject, res: ?*c.GAsyncResult, data: c.gpointer) callconv(.C) void {
+    const self = get_self(data);
+
+    var err: ?*c.GError = null;
+    const context = c.ibus_bus_create_input_context_async_finish(self.ibus_bus, res, &err) orelse {
+        dbg("ACHTUNG ACHTUNG: could not create ibus context\n", .{});
+        return;
+    };
+
+    c.ibus_input_context_set_client_commit_preedit(context, c.FALSE);
+    self.ibus_context = context;
+
+    _ = g.g_signal_connect(context, "commit-text", &ibus_context_commit_text, data);
+    _ = g.g_signal_connect(context, "forward-key-event", &ibus_context_forward_key_event, data);
+}
+
+fn ibus_context_commit_text(_: *c.IBusInputContext, text: *c.IBusText, data: c.gpointer) callconv(.C) void {
+    const self = get_self(data);
+    self.doCommit(std.mem.span(text.text)) catch @panic("It was a dream!");
+}
+
+fn ibus_context_forward_key_event(_: *c.IBusInputContext, keyval: c.guint, keycode: c.guint, state: c.guint, data: c.gpointer) callconv(.C) void {
+    _ = data;
+    dbg("very tangent: {} {} ({})\n", .{ keyval, keycode, state });
+    //if (!(state & c.IBUS_RELEASE_MASK)) {
+    // pangoterm_keypress(pt, keyval, keycode+8, state);
+    // }
+}
+
 fn focus_enter(_: *c.GtkEventControllerFocus, data: c.gpointer) callconv(.C) void {
     // c.g_print("änter\n");
-    const im_context: *c.GtkIMContext = @ptrCast(@alignCast(data));
-    c.gtk_im_context_focus_in(im_context);
+    // const im_context: *c.GtkIMContext = @ptrCast(@alignCast(data));
+    const self = get_self(data);
+    if (use_ibus) {} else {
+        c.gtk_im_context_focus_in(self.im_context);
+    }
 }
 
 fn focus_leave(_: *c.GtkEventControllerFocus, data: c.gpointer) callconv(.C) void {
     // c.g_print("you must leave now\n");
-    const im_context: *c.GtkIMContext = @ptrCast(@alignCast(data));
-    c.gtk_im_context_focus_out(im_context);
+    // const im_context: *c.GtkIMContext = @ptrCast(@alignCast(data));
+    const self = get_self(data);
+    if (use_ibus) {} else {
+        c.gtk_im_context_focus_out(self.im_context);
+    }
 }
 
 fn on_stdout(_: ?*c.GIOChannel, cond: c.GIOCondition, data: c.gpointer) callconv(.C) c.gboolean {
@@ -503,31 +564,38 @@ fn activate(app: *c.GtkApplication, data: c.gpointer) callconv(.C) void {
     //const box: *c.GtkWidget = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 0);
     // c.gtk_window_set_child(g.GTK_WINDOW(window), box);
     self.da = c.gtk_drawing_area_new();
-    _ = g.g_signal_connect(self.da, "resize", g.G_CALLBACK(&area_resize), self);
+    _ = g.g_signal_connect(self.da, "resize", &area_resize, self);
     // c.gtk_drawing_area_set_content_width(g.GTK_DRAWING_AREA(self.da), 500);
     // c.gtk_drawing_area_set_content_height(g.GTK_DRAWING_AREA(self.da), 500);
     c.gtk_drawing_area_set_draw_func(g.GTK_DRAWING_AREA(self.da), &redraw_area, self, null);
     const key_ev = c.gtk_event_controller_key_new();
     c.gtk_widget_add_controller(window, key_ev);
-    const im_context = c.gtk_im_multicontext_new();
-    // ibus on gtk4 has bug :(
-    // c.gtk_event_controller_key_set_im_context(g.g_cast(c.GtkEventControllerKey, c.gtk_event_controller_key_get_type(), key_ev), im_context);
-    c.gtk_im_context_set_client_widget(im_context, self.da);
-    c.gtk_im_context_set_use_preedit(im_context, c.FALSE);
-    _ = g.g_signal_connect(key_ev, "key-pressed", g.G_CALLBACK(&key_pressed), self);
+    _ = g.g_signal_connect(key_ev, "key-pressed", &key_pressed, self);
+    _ = g.g_signal_connect(key_ev, "key-released", &key_released, self);
+
+    if (use_ibus) {
+        self.ibus_bus = c.ibus_bus_new_async_client();
+        _ = g.g_signal_connect(self.ibus_bus, "connected", &ibus_connected, self);
+    } else {
+        const im_context = c.gtk_im_multicontext_new();
+        self.im_context = im_context;
+        // ibus on gtk4 has bug :(
+        c.gtk_event_controller_key_set_im_context(g.g_cast(c.GtkEventControllerKey, c.gtk_event_controller_key_get_type(), key_ev), im_context);
+        c.gtk_im_context_set_client_widget(im_context, self.da);
+        c.gtk_im_context_set_use_preedit(im_context, c.FALSE);
+        _ = g.g_signal_connect(im_context, "commit", &commit, self);
+    }
 
     const button_ev = c.gtk_gesture_click_new();
     c.gtk_gesture_single_set_button(@ptrCast(button_ev), 0); // CAN HAS ALL THE BUTTONS
     c.gtk_widget_add_controller(window, @ptrCast(button_ev));
     _ = g.g_signal_connect(button_ev, "pressed", g.G_CALLBACK(&mouse_pressed), self);
 
-    _ = g.g_signal_connect(im_context, "commit", g.G_CALLBACK(&commit), self);
-
     const focus_ev = c.gtk_event_controller_focus_new();
     c.gtk_widget_add_controller(window, focus_ev);
     // TODO: this does not work! (when ALT-TAB)
-    _ = g.g_signal_connect(focus_ev, "enter", g.G_CALLBACK(&focus_enter), im_context);
-    _ = g.g_signal_connect(focus_ev, "leave", g.G_CALLBACK(&focus_leave), im_context);
+    _ = g.g_signal_connect(focus_ev, "enter", g.G_CALLBACK(&focus_enter), self);
+    _ = g.g_signal_connect(focus_ev, "leave", g.G_CALLBACK(&focus_leave), self);
     c.gtk_widget_set_focusable(window, 1);
     c.gtk_widget_set_focusable(self.da, 1);
 

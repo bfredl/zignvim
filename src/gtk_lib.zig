@@ -31,7 +31,7 @@ pub fn g_signal_connect_data(instance: anytype, detailed_signal: [*:0]const u8, 
 }
 
 pub fn g_signal_connect(instance: anytype, detailed_signal: [*:0]const u8, handler: anytype, data: anytype) c.gulong {
-    return g_signal_connect_data(instance, detailed_signal, handler, data, 0);
+    return g_signal_connect_data(instance, detailed_signal, G_CALLBACK(handler), data, 0);
 }
 
 pub fn g_signal_connect_swapped(instance: anytype, detailed_signal: [*:0]const u8, handler: anytype, data: anytype) c.gulong {

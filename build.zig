@@ -24,6 +24,7 @@ pub fn build(b: *std.Build) void {
     });
     exe_gtk.linkLibC();
     exe_gtk.linkSystemLibrary("gtk4");
+    exe_gtk.linkSystemLibrary("ibus-1.0");
     b.installArtifact(exe_gtk);
     const gtk_run_cmd = b.addRunArtifact(exe_gtk);
     if (b.args) |args| {
@@ -40,6 +41,7 @@ pub fn build(b: *std.Build) void {
     });
     exe_pango.linkLibC();
     exe_pango.linkSystemLibrary("gtk4");
+    exe_pango.linkSystemLibrary("ibus-1.0"); // TODO: OPTIONAL!
     b.installArtifact(exe_pango);
     const pango = b.addRunArtifact(exe_pango);
     if (b.args) |args| {
