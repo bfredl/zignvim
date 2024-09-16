@@ -214,7 +214,7 @@ fn ibus_context_commit_text(_: *c.IBusInputContext, text: *c.IBusText, data: c.g
 
 fn ibus_context_forward_key_event(_: *c.IBusInputContext, keyval: c.guint, keycode: c.guint, state: c.guint, data: c.gpointer) callconv(.C) void {
     const self = get_self(data);
-    dbg("very tangent: {} {} ({})\n", .{ keyval, keycode, state });
+    // dbg("very tangent: {} {} ({})\n", .{ keyval, keycode, state });
     if ((state & c.IBUS_RELEASE_MASK) == 0) {
         self.onKeyPress(keyval, keycode + 8, state) catch @panic("These are lights instead");
     }
@@ -264,7 +264,7 @@ fn ibus_process_key_event_done(object: [*c]c.GObject, res: ?*c.GAsyncResult, use
 // }}}
 
 fn focus_enter(_: *c.GtkEventControllerFocus, data: c.gpointer) callconv(.C) void {
-    c.g_print("änter\n");
+    // c.g_print("änter\n");
     // const im_context: *c.GtkIMContext = @ptrCast(@alignCast(data));
     const self = get_self(data);
     self.has_focus = true;
@@ -278,7 +278,7 @@ fn focus_enter(_: *c.GtkEventControllerFocus, data: c.gpointer) callconv(.C) voi
 }
 
 fn focus_leave(_: *c.GtkEventControllerFocus, data: c.gpointer) callconv(.C) void {
-    c.g_print("you must leave now\n");
+    // c.g_print("you must leave now\n");
     // const im_context: *c.GtkIMContext = @ptrCast(@alignCast(data));
     const self = get_self(data);
     self.has_focus = false;

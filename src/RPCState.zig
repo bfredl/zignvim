@@ -108,6 +108,7 @@ const RedrawEvents = enum {
     grid_resize,
     grid_clear,
     grid_line,
+    grid_scroll,
     grid_cursor_goto,
     default_colors_set,
     flush,
@@ -323,6 +324,41 @@ fn grid_clear(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
 
     base_decoder.consumed(decoder);
     base_decoder.toSkip(iarg - 1); // TODO: we want decoder.pop() back!
+    self.event_calls -= 1;
+}
+
+fn grid_scroll(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
+    var decoder = try base_decoder.inner();
+    const iarg = try decoder.expectArray();
+    if (iarg < 7) return error.MalformatedRPCMessage;
+    const grid_id: u32 = @intCast(try decoder.expectUInt());
+    const top: i32 = @intCast(try decoder.expectUInt());
+    const bot: i32 = @intCast(try decoder.expectUInt());
+    const left: usize = @intCast(try decoder.expectUInt());
+    const right: usize = @intCast(try decoder.expectUInt());
+    const rows: i32 = @intCast(try decoder.expectInt());
+    const cols: i32 = @intCast(try decoder.expectInt());
+
+    if (cols != 0) {
+        dbg("ACHTUNG: column scrolling not implemented\n", .{});
+    }
+
+    const grid = &self.ui.grid[grid_id - 1];
+    const cells = grid.cell.items;
+
+    const start, const stop, const step: i32 = if (rows > 0)
+        .{ top, bot - rows, 1 }
+    else
+        .{ bot - 1, top - rows - 1, -1 };
+
+    var i: i32 = start;
+    while (i != stop) : (i += step) {
+        const target, const src = .{ @as(usize, @intCast(i)) * grid.cols, @as(usize, @intCast(i + rows)) * grid.cols };
+        @memcpy(cells[target + left .. target + right], cells[src + left .. src + right]);
+    }
+
+    base_decoder.consumed(decoder);
+    base_decoder.toSkip(iarg - 7);
     self.event_calls -= 1;
 }
 

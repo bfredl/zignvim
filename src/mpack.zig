@@ -239,6 +239,14 @@ pub const InnerDecoder = struct {
         }
     }
 
+    pub fn expectInt(self: *Self) MpackError!i64 {
+        switch (try self.readHead()) {
+            .UInt => |val| return @bitCast(val), // suss but what can you do
+            .Int => |val| return val,
+            else => return error.UnexpectedTagError,
+        }
+    }
+
     pub fn expectBool(self: *Self) MpackError!bool {
         switch (try self.readHead()) {
             .Bool => |val| return val,
