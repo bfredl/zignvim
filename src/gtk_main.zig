@@ -465,6 +465,18 @@ fn flush(self: *Self) !void {
         // dbg("{}<-{}, ", .{ pos, bg });
         c.cairo_set_source_rgba(cr, ccolor(color.r), ccolor(color.g), ccolor(color.b), 0.8);
         c.cairo_fill(cr);
+
+        if (use_ibus) {
+            if (self.ibus_context) |context| {
+                // FIXME: GTK_STYLE_CLASS_TITLEBAR is available in GTK3 but not GTK4.
+                // gtk_css_boxes_get_content_rect() is available in GTK4 but it's an
+                // internal API and calculate the window edge 32 in GTK3.
+                const yoff = 32;
+                c.ibus_input_context_set_cursor_location_relative(context, pos.x, pos.y + yoff, pos.width, pos.height);
+            }
+        } else {
+            c.gtk_im_context_set_cursor_location(self.im_context, &pos);
+        }
     }
 
     c.gtk_widget_queue_draw(g.GTK_WIDGET(self.da));
