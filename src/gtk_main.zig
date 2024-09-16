@@ -37,8 +37,11 @@ requested_width: u32 = 0,
 requested_height: u32 = 0,
 did_resize: bool = false,
 
+has_focus: bool = false,
+
+// If you'll be null, I'll be void
 im_context: if (use_ibus) void else *c.GtkIMContext = undefined,
-ibus_context: if (use_ibus) *c.IBusInputContext else void = undefined,
+ibus_context: if (use_ibus) ?*c.IBusInputContext else void = null,
 ibus_bus: if (use_ibus) *c.IBusBus else void = undefined,
 
 fn get_self(data: c.gpointer) *Self {
@@ -46,22 +49,31 @@ fn get_self(data: c.gpointer) *Self {
 }
 
 fn key_pressed(_: *c.GtkEventControllerKey, keyval: c.guint, keycode: c.guint, mod: c.GdkModifierType, data: c.gpointer) callconv(.C) bool {
-    _ = keycode;
     const self = get_self(data);
-    self.onKeyPress(keyval, mod) catch @panic("We live inside of a dream!");
+    if (use_ibus) {
+        // TODO: cargo-cult comment, these might note be relavant for raw IBUS
+        // GtkIMContext will eat a Shift-Space and not tell us about shift.
+        // Also don't let IME eat any GDK_KEY_KP_ events
+        if (!((mod & c.GDK_SHIFT_MASK) != 0 and keyval == ' ') and !(keyval >= c.GDK_KEY_KP_Space and keyval <= c.GDK_KEY_KP_Divide)) {
+            const ret = ibus_filter_keypress(self, keyval, keycode, mod, false) catch @panic("kalm. PANIK.");
+            if (ret) return true;
+        }
+    }
+
+    self.onKeyPress(keyval, keycode, mod) catch @panic("We live inside of a dream!");
     return false;
 }
 
 fn key_released(_: *c.GtkEventControllerKey, keyval: c.guint, keycode: c.guint, mod: c.GdkModifierType, data: c.gpointer) callconv(.C) bool {
-    _ = keycode;
-    _ = mod;
-    _ = keyval;
     const self = get_self(data);
-    _ = self;
+    if (use_ibus) {
+        return ibus_filter_keypress(self, keyval, keycode, mod, true) catch @panic("kalm. PANIK.");
+    }
     return false;
 }
 
-fn onKeyPress(self: *Self, keyval: c.guint, mod: c.guint) !void {
+fn onKeyPress(self: *Self, keyval: c.guint, keycode: c.guint, mod: c.guint) !void {
+    _ = keycode;
     const special: ?[:0]const u8 = switch (keyval) {
         c.GDK_KEY_Left => "Left",
         c.GDK_KEY_Right => "Right",
@@ -159,7 +171,8 @@ fn commit(_: *c.GtkIMContext, str: [*:0]const u8, data: c.gpointer) callconv(.C)
     self.doCommit(std.mem.span(str)) catch @panic("It was a dream!");
 }
 
-// private IBus implementation
+// private IBus implementation {{{
+
 fn ibus_connected(bus: *c.IBusBus, data: c.gpointer) callconv(.C) void {
     // const self = get_self(data);
     // g_assert (self.ibus_context == null);
@@ -184,6 +197,14 @@ fn ibus_input_context_created(_: [*c]c.GObject, res: ?*c.GAsyncResult, data: c.g
 
     _ = g.g_signal_connect(context, "commit-text", &ibus_context_commit_text, data);
     _ = g.g_signal_connect(context, "forward-key-event", &ibus_context_forward_key_event, data);
+
+    const caps = c.IBUS_CAP_FOCUS; // | IBUS_CAP_PREEDIT_TEXT (SOOON)
+    c.ibus_input_context_set_capabilities(context, caps);
+
+    if (self.has_focus) {
+        c.ibus_input_context_focus_in(context);
+        // _set_cursor_location_internal (pt);
+    }
 }
 
 fn ibus_context_commit_text(_: *c.IBusInputContext, text: *c.IBusText, data: c.gpointer) callconv(.C) void {
@@ -192,27 +213,80 @@ fn ibus_context_commit_text(_: *c.IBusInputContext, text: *c.IBusText, data: c.g
 }
 
 fn ibus_context_forward_key_event(_: *c.IBusInputContext, keyval: c.guint, keycode: c.guint, state: c.guint, data: c.gpointer) callconv(.C) void {
-    _ = data;
+    const self = get_self(data);
     dbg("very tangent: {} {} ({})\n", .{ keyval, keycode, state });
-    //if (!(state & c.IBUS_RELEASE_MASK)) {
-    // pangoterm_keypress(pt, keyval, keycode+8, state);
-    // }
+    if ((state & c.IBUS_RELEASE_MASK) == 0) {
+        self.onKeyPress(keyval, keycode + 8, state) catch @panic("These are lights instead");
+    }
 }
 
+const ProcessedKeyState = struct {
+    self: *Self,
+    keyval: c.guint,
+    keycode: c.guint,
+    state: c.GdkModifierType,
+};
+
+fn ibus_filter_keypress(self: *Self, keyval: c.guint, keycode: c.guint, gdk_state: c.GdkModifierType, release: bool) !bool {
+    const context = self.ibus_context orelse return false;
+
+    const state = gdk_state | if (release) @as(c.guint, @intCast(c.IBUS_RELEASE_MASK)) else 0;
+
+    const data = try self.gpa.allocator().create(ProcessedKeyState);
+    data.* = .{ .self = self, .keyval = keyval, .keycode = keycode, .state = state };
+
+    c.ibus_input_context_process_key_event_async(context, keyval, keycode - 8, state, -1, null, &ibus_process_key_event_done, data);
+
+    return true;
+}
+
+fn ibus_process_key_event_done(object: [*c]c.GObject, res: ?*c.GAsyncResult, user_data: c.gpointer) callconv(.C) void {
+    const context: *c.IBusInputContext = @ptrCast(@alignCast(object));
+    const data: *ProcessedKeyState = @ptrCast(@alignCast(user_data));
+    var err: ?*c.GError = null;
+
+    const ret = c.ibus_input_context_process_key_event_async_finish(context, res, &err);
+
+    if (err) |e| {
+        dbg("Process Key Event failed: {s}.", .{e.message});
+        c.g_error_free(err);
+    }
+
+    if (ret == c.FALSE) {
+        if ((data.state & c.IBUS_RELEASE_MASK) == 0) {
+            dbg("falskeligen {}\n", .{data.keyval});
+            data.self.onKeyPress(data.keyval, data.keycode, data.state) catch @panic("I cannot believe you've done this!");
+        }
+    }
+    data.self.gpa.allocator().destroy(data);
+}
+
+// }}}
+
 fn focus_enter(_: *c.GtkEventControllerFocus, data: c.gpointer) callconv(.C) void {
-    // c.g_print("änter\n");
+    c.g_print("änter\n");
     // const im_context: *c.GtkIMContext = @ptrCast(@alignCast(data));
     const self = get_self(data);
-    if (use_ibus) {} else {
+    self.has_focus = true;
+    if (use_ibus) {
+        if (self.ibus_context) |ctx| {
+            c.ibus_input_context_focus_in(ctx);
+        }
+    } else {
         c.gtk_im_context_focus_in(self.im_context);
     }
 }
 
 fn focus_leave(_: *c.GtkEventControllerFocus, data: c.gpointer) callconv(.C) void {
-    // c.g_print("you must leave now\n");
+    c.g_print("you must leave now\n");
     // const im_context: *c.GtkIMContext = @ptrCast(@alignCast(data));
     const self = get_self(data);
-    if (use_ibus) {} else {
+    self.has_focus = false;
+    if (use_ibus) {
+        if (self.ibus_context) |ctx| {
+            c.ibus_input_context_focus_out(ctx);
+        }
+    } else {
         c.gtk_im_context_focus_out(self.im_context);
     }
 }
