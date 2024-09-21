@@ -289,11 +289,8 @@ fn grid_resize(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     var decoder = try base_decoder.inner();
     const iarg = try decoder.expectArray();
     const grid_id = try decoder.expectUInt();
-    if (grid_id != 1) {
-        @panic("get out!");
-    }
 
-    const grid = &self.ui.grid[grid_id - 1];
+    const grid = try self.ui.put_grid(@intCast(grid_id));
     grid.cols = @intCast(try decoder.expectUInt());
     grid.rows = @intCast(try decoder.expectUInt());
 
@@ -310,21 +307,18 @@ fn grid_clear(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     var decoder = try base_decoder.inner();
     const iarg = try decoder.expectArray();
     const grid_id = try decoder.expectUInt();
-    if (grid_id != 1) {
-        @panic("get out!");
-    }
 
-    const grid = &self.ui.grid[grid_id - 1];
+    base_decoder.consumed(decoder);
+    base_decoder.toSkip(iarg - 1); // TODO: we want decoder.pop() back!
+    self.event_calls -= 1;
+
+    const grid = self.ui.grid(@intCast(grid_id)) orelse return error.InvalidUIState;
     var char: [UIState.charsize]u8 = undefined;
     //char[0..2] = .{ ' ', 0 };
     char[0] = ' ';
     char[1] = 0;
 
     @memset(grid.cell.items, .{ .text = .{ .plain = char }, .attr_id = 0 });
-
-    base_decoder.consumed(decoder);
-    base_decoder.toSkip(iarg - 1); // TODO: we want decoder.pop() back!
-    self.event_calls -= 1;
 }
 
 fn grid_scroll(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
@@ -339,11 +333,15 @@ fn grid_scroll(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     const rows: i32 = @intCast(try decoder.expectInt());
     const cols: i32 = @intCast(try decoder.expectInt());
 
+    base_decoder.consumed(decoder);
+    base_decoder.toSkip(iarg - 7);
+    self.event_calls -= 1;
+
     if (cols != 0) {
         dbg("ACHTUNG: column scrolling not implemented\n", .{});
     }
 
-    const grid = &self.ui.grid[grid_id - 1];
+    const grid = self.ui.grid(grid_id) orelse return error.InvalidUIState;
     const cells = grid.cell.items;
 
     const start, const stop, const step: i32 = if (rows > 0)
@@ -356,10 +354,6 @@ fn grid_scroll(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
         const target, const src = .{ @as(usize, @intCast(i)) * grid.cols, @as(usize, @intCast(i + rows)) * grid.cols };
         @memcpy(cells[target + left .. target + right], cells[src + left .. src + right]);
     }
-
-    base_decoder.consumed(decoder);
-    base_decoder.toSkip(iarg - 7);
-    self.event_calls -= 1;
 }
 
 fn grid_cursor_goto(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
@@ -419,11 +413,13 @@ fn grid_line(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
         const col = try decoder.expectUInt();
         const ncells = try decoder.expectArray();
 
+        const grid = self.ui.grid(@intCast(grid_id)) orelse return error.InvalidUIState;
+
         // dbg("with line: {} {} has cells {} and extra {}\n", .{ row, col, ncells, iarg - 4 });
 
         self.event_state = .{ .cell = .{
             .event_extra_args = iarg - 4,
-            .grid = &self.ui.grid[grid_id - 1],
+            .grid = grid,
             .row = @intCast(row),
             .col = @intCast(col),
             .ncells = ncells,

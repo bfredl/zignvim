@@ -14,7 +14,27 @@ mode_idx: u32 = 0,
 cursor: struct { grid: u32, row: u16, col: u16 } = undefined,
 default_colors: struct { fg: RGB, bg: RGB, sp: RGB } = undefined,
 
-grid: [1]Grid = .{.{}},
+grid_nr: ?u32 = null,
+grid_cached: *Grid = undefined,
+grids: std.AutoArrayHashMapUnmanaged(u32, Grid) = .{},
+
+pub fn grid(self: *Self, id: u32) ?*Grid {
+    if (self.grid_nr == id) {
+        return self.grid_cached;
+    }
+    return self.grids.getPtr(id);
+}
+
+pub fn put_grid(self: *Self, id: u32) !*Grid {
+    if (self.grid_nr == id) {
+        return self.grid_cached;
+    }
+    const gop = try self.grids.getOrPut(self.allocator, id);
+    if (!gop.found_existing) {
+        gop.value_ptr.* = Grid{};
+    }
+    return gop.value_ptr;
+}
 
 pub const Attr = struct {
     start: u32 = 0,
@@ -117,14 +137,14 @@ pub fn intern_glyph(self: *@This(), str: []const u8) !CellText {
     }
 }
 
-pub fn dump_grid(self: *Self) void {
+pub fn dump_grid(self: *Self, id: u32) void {
     var attr_id: u32 = 0;
-    dbg("SCREEN begin ======\n", .{});
-    const grid = self.grid[0];
-    for (0..grid.rows) |row| {
-        const basepos = row * grid.cols;
-        for (0..grid.cols) |col| {
-            const cell = grid.cell.items[basepos + col];
+    dbg("GRID {} begin ======\n", .{id});
+    const g = self.grid(id) orelse &Grid{};
+    for (0..g.rows) |row| {
+        const basepos = row * g.cols;
+        for (0..g.cols) |col| {
+            const cell = g.cell.items[basepos + col];
 
             if (cell.attr_id != attr_id) {
                 attr_id = cell.attr_id;
@@ -138,5 +158,5 @@ pub fn dump_grid(self: *Self) void {
         }
         dbg("\n", .{});
     }
-    dbg("SCREEN end ======\n", .{});
+    dbg("GRID end ======\n", .{});
 }

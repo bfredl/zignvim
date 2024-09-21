@@ -120,7 +120,7 @@ fn onMousePress(self: *Self, gesture: *c.GtkGesture, n_press: c.guint, x: c.gdou
 
     dbg("KLIIICK {} {}\n", .{ col, row });
 
-    const grid = &self.rpc.ui.grid[0];
+    const grid = self.rpc.ui.grid(1) orelse return;
     if (col >= grid.cols or row >= grid.cols) return;
     const basepos = row * grid.cols;
     const gridrow = grid.cell.items[basepos..][0..grid.cols];
@@ -373,10 +373,10 @@ fn ccolor(cval: u8) f64 {
 
 fn flush(self: *Self) !void {
     // dbg("le flush\n", .{});
-    // self.rpc.dump_grid();
+    // self.rpc.dump_grid(0);
 
     const ui = &self.rpc.ui;
-    const grid = &ui.grid[0];
+    const grid = ui.grid(1) orelse return;
 
     // TODO: the right condition for "font[size] changed"
     if (self.cell_height == 0) {
