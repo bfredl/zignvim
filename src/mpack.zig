@@ -88,6 +88,7 @@ pub fn encoder(writer: anytype) Encoder(@TypeOf(writer)) {
 }
 
 pub const ExtHead = struct { kind: i8, size: u32 };
+pub const SmallExt = struct { kind: i8, data: []u8 };
 pub const ValueHead = union(enum) {
     Null,
     Bool: bool,
@@ -267,6 +268,20 @@ pub const InnerDecoder = struct {
         const str = self.data[0..size];
         self.data = self.data[size..];
         return str;
+    }
+
+    pub fn expectExt(self: *Self) MpackError!SmallExt {
+        const hdr = switch (try self.readHead()) {
+            .Ext => |e| e,
+            else => return error.UnexpectedTagError,
+        };
+        if (self.data.len < hdr.size) {
+            return error.EOFError;
+        }
+
+        const str = self.data[0..hdr.size];
+        self.data = self.data[hdr.size..];
+        return SmallExt{ .kind = hdr.kind, .data = str };
     }
 
     pub fn skipAny(self: *Self, nitems: u64) MpackError!void {
