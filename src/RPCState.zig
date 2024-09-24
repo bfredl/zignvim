@@ -114,6 +114,7 @@ const RedrawEvents = enum {
     win_pos,
     win_hide,
     win_close,
+    msg_set_pos,
     flush,
 };
 
@@ -508,4 +509,20 @@ fn win_hide(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
 fn win_close(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     dbg("closed and ", .{});
     return win_hide(self, base_decoder);
+}
+
+fn msg_set_pos(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
+    var decoder = try base_decoder.inner();
+    const iarg = try decoder.expectArray();
+    if (iarg < 4) return error.MalformatedRPCMessage;
+    const grid: u32 = @intCast(try decoder.expectUInt());
+    const row: u32 = @intCast(try decoder.expectUInt());
+    const scrolled = try decoder.expectBool();
+    const char = try decoder.expectString();
+
+    dbg("messages: grid={} at {} scrolled={} char='{s}'\n", .{ grid, row, scrolled, char });
+
+    base_decoder.consumed(decoder);
+    base_decoder.toSkip(iarg - 4);
+    self.event_calls -= 1;
 }
