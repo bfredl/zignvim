@@ -33,6 +33,7 @@ cell_width: u32 = 0,
 cell_height: u32 = 0,
 font_ascent: u32 = 0,
 
+multigrid: bool = false,
 requested_width: u32 = 0,
 requested_height: u32 = 0,
 did_resize: bool = false,
@@ -610,25 +611,29 @@ fn set_font(self: *Self, font: [:0]const u8) !void {
     self.context = pctx;
 }
 
+// TODO: nonsens
 fn init(self: *Self) !void {
     const allocator = self.gpa.allocator();
+
+    self.enc_buf = ArrayList(u8).init(allocator);
+    self.key_buf = ArrayList(u8).init(allocator);
+
+    self.decoder = mpack.SkipDecoder{ .data = self.buf[0..0] };
+    self.rpc = try RPCState.init(allocator);
+}
+
+fn attach(self: *Self) !void {
+    const width: u32, const height: u32 = .{ 80, 25 };
 
     var the_fd: ?i32 = null;
     if (false) {
         the_fd = try std.posix.dup(0);
     }
 
-    self.child = try io.spawn(allocator, the_fd);
-    self.enc_buf = ArrayList(u8).init(allocator);
-    self.key_buf = ArrayList(u8).init(allocator);
-
-    self.decoder = mpack.SkipDecoder{ .data = self.buf[0..0] };
-    self.rpc = try RPCState.init(allocator);
-
-    const width: u32, const height: u32 = .{ 80, 25 };
+    self.child = try io.spawn(self.gpa.allocator(), the_fd);
 
     var encoder = mpack.encoder(self.enc_buf.writer());
-    try io.attach(&encoder, width, height, if (the_fd) |_| @as(i32, 3) else null);
+    try io.attach(&encoder, width, height, if (the_fd) |_| @as(i32, 3) else null, self.multigrid);
     try self.flush_input();
 
     self.requested_width = width;
@@ -638,9 +643,26 @@ fn init(self: *Self) !void {
     _ = c.g_io_add_watch(gio, c.G_IO_IN, on_stdout, self);
 }
 
-fn activate(app: *c.GtkApplication, data: c.gpointer) callconv(.C) void {
+fn command_line(
+    app: *c.GtkApplication,
+    cmdline: *c.GApplicationCommandLine,
+    data: c.gpointer,
+) callconv(.C) void {
+    var argc: c.gint = 0;
+    const argv = c.g_application_command_line_get_arguments(cmdline, &argc);
     const self = get_self(data);
+
     self.init() catch @panic("heeee");
+    if (argc > 1) {
+        if (std.mem.eql(u8, std.mem.span(argv[1]), "--multigrid")) {
+            dbg("IT'S MULTIGRID!!!!!\n", .{});
+            self.multigrid = true;
+        } else {
+            dbg("IT'S {s}!!!!!\n", .{argv[1]});
+            std.posix.exit(1);
+        }
+    }
+    self.attach() catch @panic("cannot attach!");
 
     const window: *c.GtkWidget = c.gtk_application_window_new(app);
     self.window = g.GTK_WINDOW(window);
@@ -696,10 +718,12 @@ pub fn main() u8 {
     // TODO: can we refer directly to .gpa in further fields?
     var self = Self{ .gpa = std.heap.GeneralPurposeAllocator(.{}){} };
 
-    const app: *c.GtkApplication = c.gtk_application_new("io.github.bfredl.zignvim", c.G_APPLICATION_FLAGS_NONE);
+    const app: *c.GtkApplication = c.gtk_application_new("io.github.bfredl.zignvim", c.G_APPLICATION_HANDLES_COMMAND_LINE);
     defer c.g_object_unref(@ptrCast(app));
 
-    _ = g.g_signal_connect(app, "activate", g.G_CALLBACK(&activate), &self);
+    _ = g.g_signal_connect(app, "command-line", g.G_CALLBACK(&command_line), &self);
+    // not to be used with command-line??? GIO docs are so confusing
+    // _ = g.g_signal_connect(app, "activate", g.G_CALLBACK(&activate), &self);
     const status = c.g_application_run(
         g.g_cast(c.GApplication, c.g_application_get_type(), app),
         @intCast(std.os.argv.len),

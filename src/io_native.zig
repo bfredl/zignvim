@@ -21,7 +21,7 @@ pub fn spawn(allocator: mem.Allocator, stdin_fd: ?i32) !std.process.Child {
     return child;
 }
 
-pub fn attach(encoder: anytype, width: u32, height: u32, stdin_fd: ?i32) !void {
+pub fn attach(encoder: anytype, width: u32, height: u32, stdin_fd: ?i32, multigrid: bool) !void {
     if (false) {
         try encoder.putArrayHead(4);
         try encoder.putInt(0); // request
@@ -43,12 +43,18 @@ pub fn attach(encoder: anytype, width: u32, height: u32, stdin_fd: ?i32) !void {
         try encoder.putArrayHead(3);
         try encoder.putInt(width);
         try encoder.putInt(height);
-        try encoder.putMapHead(if (stdin_fd != null) 2 else 1);
+        const EINS: u32 = 1;
+        const items: u32 = 1 + (if (stdin_fd != null) EINS else 0) + (if (multigrid) EINS else 0);
+        try encoder.putMapHead(items);
         try encoder.putStr("ext_linegrid");
         try encoder.putBool(true);
         if (stdin_fd) |fd| {
             try encoder.putStr("stdin_fd");
             try encoder.putInt(fd);
+        }
+        if (multigrid) {
+            try encoder.putStr("ext_multigrid");
+            try encoder.putBool(true);
         }
     }
 }
