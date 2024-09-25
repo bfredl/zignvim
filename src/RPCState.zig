@@ -298,13 +298,20 @@ fn grid_resize(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     grid.cols = @intCast(try decoder.expectUInt());
     grid.rows = @intCast(try decoder.expectUInt());
 
-    try grid.cell.resize(self.ui.allocator, grid.rows * grid.cols);
-
     base_decoder.consumed(decoder);
     base_decoder.toSkip(iarg - 3);
     self.event_calls -= 1;
 
-    dbg("REZISED {} x {}\n", .{ grid.cols, grid.rows });
+    try grid.cell.resize(self.ui.allocator, grid.rows * grid.cols);
+
+    // TODO: not correct for windows, which retain the upper-left
+    var char: [UIState.charsize]u8 = undefined;
+    //char[0..2] = .{ ' ', 0 };
+    char[0] = '?';
+    char[1] = 0;
+    @memset(grid.cell.items, .{ .text = .{ .plain = char }, .attr_id = 0 });
+
+    dbg("REZISED {}: {} x {}\n", .{ grid_id, grid.cols, grid.rows });
 }
 
 fn grid_clear(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
@@ -317,6 +324,7 @@ fn grid_clear(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     self.event_calls -= 1;
 
     const grid = self.ui.grid(@intCast(grid_id)) orelse return error.InvalidUIState;
+    dbg("kireeee {}: {} {}\n", .{ grid_id, grid.rows, grid.cols });
     var char: [UIState.charsize]u8 = undefined;
     //char[0..2] = .{ ' ', 0 };
     char[0] = ' ';

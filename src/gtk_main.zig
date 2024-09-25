@@ -116,10 +116,17 @@ fn onMousePress(self: *Self, gesture: *c.GtkGesture, n_press: c.guint, x: c.gdou
     _ = gesture;
     _ = n_press;
 
+    // dbg("xitor {d}, yitor {d}\n", .{ x, y });
+
     const col = @as(u32, @intFromFloat(x)) / self.cell_width;
     const row = @as(u32, @intFromFloat(y)) / self.cell_height;
 
     dbg("KLIIICK {} {}\n", .{ col, row });
+
+    if (self.multigrid) {
+        dbg("does not work yet sowwy :(\n", .{});
+        return;
+    }
 
     const grid = self.rpc.ui.grid(1) orelse return;
     if (col >= grid.cols or row >= grid.cols) return;
@@ -143,7 +150,9 @@ fn onMousePress(self: *Self, gesture: *c.GtkGesture, n_press: c.guint, x: c.gdou
     defer c.cairo_destroy(cr);
 
     const attr = self.rpc.ui.attr(myattr);
-    try self.draw_run(cr, row, first, end - first, gridrow[first..end], attr, true);
+    const xpos = self.cell_width * first;
+    const ypos = row * self.cell_height;
+    try self.draw_run(cr, xpos, ypos, end - first, gridrow[first..end], attr, true);
 
     // NB: redisplay if we actually change something
 }
@@ -413,29 +422,25 @@ fn flush(self: *Self) !void {
     c.cairo_set_source_rgb(cr, 0.8, 0.2, 0.2);
     c.cairo_paint(cr);
 
-    for (0..grid.rows) |row| {
-        const basepos = row * grid.cols;
-        var cur_attr: u32 = grid.cell.items[basepos].attr_id;
-        var begin: usize = 0;
-        // dbg("SEGMENTS {}: ", .{row});
-        for (1..grid.cols + 1) |col| {
-            const last_attr = cur_attr;
-            const new = if (col < grid.cols) new: {
-                cur_attr = grid.cell.items[basepos + col].attr_id;
-                break :new cur_attr != last_attr;
-            } else true;
+    try self.draw_grid(cr, 0, 0, grid, grid.rows);
 
-            if (new) {
-                // dbg("{}-{}, ", .{ begin, col });
+    if (self.rpc.ui.msg) |msg| {
+        if (self.rpc.ui.grid(msg.grid)) |msg_grid| {
+            // dbg("grid {}: row {} gives {}", .{ msg.grid, msg.row, grid.rows - msg.row });
+            try self.draw_grid(cr, 0, self.cell_height * msg.row, msg_grid, grid.rows - msg.row);
 
-                const attr = ui.attr(last_attr);
-
-                try self.draw_run(cr, row, begin, col - begin, grid.cell.items[basepos + begin .. basepos + col], attr, false);
-
-                begin = col;
+            if (msg.scrolled and msg.row > 0) {
+                const pos: c.GdkRectangle = .{
+                    .x = 0,
+                    .y = @intCast(msg.row * self.cell_height - 6),
+                    .width = @intCast(self.cell_width * grid.cols),
+                    .height = 6,
+                };
+                c.gdk_cairo_rectangle(cr, &pos);
+                c.cairo_set_source_rgba(cr, ccolor(255), ccolor(0), ccolor(0), 0.8);
+                c.cairo_fill(cr);
             }
         }
-        // dbg("\n", .{});
     }
 
     {
@@ -483,10 +488,39 @@ fn flush(self: *Self) !void {
     c.gtk_widget_queue_draw(g.GTK_WIDGET(self.da));
 }
 
-fn draw_run(self: *Self, cr: *c.cairo_t, row: usize, col: usize, bg_width: usize, cells: []UIState.Cell, attr: UIState.Attr, debug: bool) !void {
+fn draw_grid(self: *Self, cr: *c.cairo_t, x_off: u32, y_off: u32, grid: *UIState.Grid, rows: u32) !void {
+    for (0..rows) |row| {
+        const basepos = row * grid.cols;
+        var cur_attr: u32 = grid.cell.items[basepos].attr_id;
+        var begin: usize = 0;
+        // dbg("SEGMENTS {}: ", .{row});
+        for (1..grid.cols + 1) |col| {
+            const last_attr = cur_attr;
+            const new = if (col < grid.cols) new: {
+                cur_attr = grid.cell.items[basepos + col].attr_id;
+                break :new cur_attr != last_attr;
+            } else true;
+
+            if (new) {
+                // dbg("{}-{}, ", .{ begin, col });
+
+                const attr = self.rpc.ui.attr(last_attr);
+
+                const x = self.cell_width * begin + x_off;
+                const y = row * self.cell_height + y_off;
+                try self.draw_run(cr, x, y, col - begin, grid.cell.items[basepos + begin .. basepos + col], attr, false);
+
+                begin = col;
+            }
+        }
+        // dbg("\n", .{});
+    }
+}
+
+fn draw_run(self: *Self, cr: *c.cairo_t, x: usize, y: usize, bg_width: usize, cells: []UIState.Cell, attr: UIState.Attr, debug: bool) !void {
     const pos: c.GdkRectangle = .{
-        .x = @intCast(self.cell_width * col),
-        .y = @intCast(row * self.cell_height),
+        .x = @intCast(x),
+        .y = @intCast(y),
         .width = @intCast(self.cell_width * bg_width),
         .height = @intCast(self.cell_height),
     };
@@ -514,13 +548,12 @@ fn draw_run(self: *Self, cr: *c.cairo_t, row: usize, col: usize, bg_width: usize
     }
 
     const text_cells = cells[first_text..text_end];
-    const text_col = col + first_text;
     const text_width = text_end - first_text;
 
     for (text_cells[0..text_width]) |cell| {
         try text.appendSlice(self.rpc.ui.text(&cell));
     }
-    if (debug) dbg("for text \"{s}\" in ({},{}):\n", .{ text.items, text_col, text_col + text_width });
+    if (debug) dbg("for text \"{s}\" in ({},{}):\n", .{ text.items, first_text, first_text + text_width });
 
     const attr_list = c.pango_attr_list_new();
     const glyphs = g.pango_glyph_string_new() orelse @panic("GLORT");
@@ -677,7 +710,7 @@ fn command_line(
     // c.gtk_drawing_area_set_content_height(g.GTK_DRAWING_AREA(self.da), 500);
     c.gtk_drawing_area_set_draw_func(g.GTK_DRAWING_AREA(self.da), &redraw_area, self, null);
     const key_ev = c.gtk_event_controller_key_new();
-    c.gtk_widget_add_controller(window, key_ev);
+    c.gtk_widget_add_controller(self.da, key_ev);
     _ = g.g_signal_connect(key_ev, "key-pressed", &key_pressed, self);
     _ = g.g_signal_connect(key_ev, "key-released", &key_released, self);
 
@@ -696,15 +729,15 @@ fn command_line(
 
     const button_ev = c.gtk_gesture_click_new();
     c.gtk_gesture_single_set_button(@ptrCast(button_ev), 0); // CAN HAS ALL THE BUTTONS
-    c.gtk_widget_add_controller(window, @ptrCast(button_ev));
+    c.gtk_widget_add_controller(self.da, @ptrCast(button_ev));
     _ = g.g_signal_connect(button_ev, "pressed", g.G_CALLBACK(&mouse_pressed), self);
 
     const focus_ev = c.gtk_event_controller_focus_new();
-    c.gtk_widget_add_controller(window, focus_ev);
+    c.gtk_widget_add_controller(self.da, focus_ev);
     // TODO: this does not work! (when ALT-TAB)
     _ = g.g_signal_connect(focus_ev, "enter", g.G_CALLBACK(&focus_enter), self);
     _ = g.g_signal_connect(focus_ev, "leave", g.G_CALLBACK(&focus_leave), self);
-    c.gtk_widget_set_focusable(window, 1);
+    // c.gtk_widget_set_focusable(window, 1);
     c.gtk_widget_set_focusable(self.da, 1);
 
     //_ = g.g_signal_connect_swapped(self.da, "clicked", g.G_CALLBACK(c.gtk_window_destroy), window);
