@@ -488,6 +488,10 @@ fn win_pos(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
 
     dbg("window: grid={} at ({},{}) size={},{}\n", .{ grid, row, col, width, height });
 
+    (try self.ui.put_grid(grid)).info = .{
+        .window = .{ .row = row, .col = col, .width = width, .height = height },
+    };
+
     base_decoder.consumed(decoder);
     base_decoder.toSkip(iarg - 6);
     self.event_calls -= 1;
@@ -497,9 +501,12 @@ fn win_hide(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     var decoder = try base_decoder.inner();
     const iarg = try decoder.expectArray();
     if (iarg < 1) return error.MalformatedRPCMessage;
-    const grid: u32 = @intCast(try decoder.expectUInt());
+    const grid_id: u32 = @intCast(try decoder.expectUInt());
 
-    dbg("IT's HIDDEN: {}\n", .{grid});
+    dbg("IT's HIDDEN: {}\n", .{grid_id});
+    if (self.ui.grid(grid_id)) |grid| {
+        grid.info = .none;
+    }
 
     base_decoder.consumed(decoder);
     base_decoder.toSkip(iarg - 1);
@@ -520,9 +527,10 @@ fn msg_set_pos(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     const scrolled = try decoder.expectBool();
     const char = try decoder.expectString();
 
-    dbg("messages: grid={} at {} scrolled={} char='{s}'\n", .{ grid, row, scrolled, char });
-
     base_decoder.consumed(decoder);
     base_decoder.toSkip(iarg - 4);
     self.event_calls -= 1;
+
+    dbg("messages: grid={} at {} scrolled={} char='{s}'\n", .{ grid, row, scrolled, char });
+    self.ui.msg = .{ .grid = grid, .row = row, .scrolled = scrolled, .char = try self.ui.intern_glyph(char) };
 }

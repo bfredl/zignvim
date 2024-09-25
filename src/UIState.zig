@@ -17,6 +17,12 @@ default_colors: struct { fg: RGB, bg: RGB, sp: RGB } = undefined,
 grid_nr: ?u32 = null,
 grid_cached: *Grid = undefined,
 grids: std.AutoArrayHashMapUnmanaged(u32, Grid) = .{},
+msg: ?struct {
+    grid: u32,
+    row: u32,
+    scrolled: bool,
+    char: CellText,
+} = null,
 
 pub fn grid(self: *Self, id: u32) ?*Grid {
     if (self.grid_nr == id) {
@@ -71,6 +77,13 @@ pub const Grid = struct {
     rows: u16 = 0,
     cols: u16 = 0,
     cell: std.ArrayListUnmanaged(Cell) = .{},
+    info: GridInfo = .none,
+};
+
+pub const GridInfo = union(enum) {
+    none: void,
+    window: struct { row: u32, col: u32, width: u32, height: u32 },
+    // float: stuff,
 };
 
 // base charsize
