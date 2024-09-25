@@ -424,8 +424,18 @@ fn flush(self: *Self) !void {
 
     try self.draw_grid(cr, 0, 0, grid, grid.rows);
 
-    if (self.rpc.ui.msg) |msg| {
-        if (self.rpc.ui.grid(msg.grid)) |msg_grid| {
+    var it = ui.grids.iterator();
+    while (it.next()) |e| {
+        const win_grid = e.value_ptr;
+        const win = info: switch (win_grid.info) {
+            .window => |w| break :info w,
+            else => continue,
+        };
+        try self.draw_grid(cr, self.cell_width * win.col, self.cell_height * win.row, win_grid, win_grid.rows);
+    }
+
+    if (ui.msg) |msg| {
+        if (ui.grid(msg.grid)) |msg_grid| {
             // dbg("grid {}: row {} gives {}", .{ msg.grid, msg.row, grid.rows - msg.row });
             try self.draw_grid(cr, 0, self.cell_height * msg.row, msg_grid, grid.rows - msg.row);
 
@@ -443,47 +453,7 @@ fn flush(self: *Self) !void {
         }
     }
 
-    {
-        const m = ui.mode();
-        var p_width: u8 = 100;
-        var p_height: u8 = 100;
-        switch (m.cursor_shape) {
-            .horizontal => p_height = m.cell_percentage,
-            .vertical => p_width = m.cell_percentage,
-            .block => {},
-        }
-        const pos: c.GdkRectangle = .{
-            .x = @intCast(self.cell_width * ui.cursor.col),
-            .y = @intCast(ui.cursor.row * self.cell_height + @divTrunc(self.cell_height * (100 - p_height), 100)),
-            .width = @intCast(@divTrunc(self.cell_width * p_width, 100)),
-            .height = @intCast(@divTrunc(self.cell_height * p_height, 100)),
-        };
-        c.gdk_cairo_rectangle(cr, &pos);
-        var color = self.rpc.ui.default_colors.fg;
-        if (m.attr_id > 0) {
-            const attr = self.rpc.ui.attr(m.attr_id);
-            if (attr.bg) |bg| {
-                color = bg;
-            }
-            // TODO: blendy blendy blendy
-        }
-        // dbg("cur_bg is {}\n", .{bg});
-        // dbg("{}<-{}, ", .{ pos, bg });
-        c.cairo_set_source_rgba(cr, ccolor(color.r), ccolor(color.g), ccolor(color.b), 0.8);
-        c.cairo_fill(cr);
-
-        if (use_ibus) {
-            if (self.ibus_context) |context| {
-                // FIXME: GTK_STYLE_CLASS_TITLEBAR is available in GTK3 but not GTK4.
-                // gtk_css_boxes_get_content_rect() is available in GTK4 but it's an
-                // internal API and calculate the window edge 32 in GTK3.
-                const yoff = 32;
-                c.ibus_input_context_set_cursor_location_relative(context, pos.x, pos.y + yoff, pos.width, pos.height);
-            }
-        } else {
-            c.gtk_im_context_set_cursor_location(self.im_context, &pos);
-        }
-    }
+    try self.draw_cursor(cr);
 
     c.gtk_widget_queue_draw(g.GTK_WIDGET(self.da));
 }
@@ -607,6 +577,62 @@ fn draw_run(self: *Self, cr: *c.cairo_t, x: usize, y: usize, bg_width: usize, ce
     // TODO: lifetime extend? or use something other than glib-pango which does dynamic memory like crazy
     c.pango_attr_list_unref(attr_list);
     g.pango_glyph_string_free(glyphs);
+}
+
+fn draw_cursor(self: *Self, cr: *c.cairo_t) !void {
+    const ui = &self.rpc.ui;
+    const m = ui.mode();
+    var p_width: u8 = 100;
+    var p_height: u8 = 100;
+    switch (m.cursor_shape) {
+        .horizontal => p_height = m.cell_percentage,
+        .vertical => p_width = m.cell_percentage,
+        .block => {},
+    }
+    var grid_x: u32 = 0;
+    var grid_y: u32 = 0;
+    const grid = ui.grid(ui.cursor.grid) orelse return;
+    switch (grid.info) {
+        .window => |win| {
+            grid_x = win.col * self.cell_width;
+            grid_y = win.row * self.cell_height;
+        },
+        .none => {},
+    }
+    if (if (ui.msg) |msg| msg.grid == ui.cursor.grid else false) {
+        grid_y = self.cell_height * ui.msg.?.row; // bullll
+    }
+    const pos: c.GdkRectangle = .{
+        .x = @intCast(grid_x + self.cell_width * ui.cursor.col),
+        .y = @intCast(grid_y + ui.cursor.row * self.cell_height + @divTrunc(self.cell_height * (100 - p_height), 100)),
+        .width = @intCast(@divTrunc(self.cell_width * p_width, 100)),
+        .height = @intCast(@divTrunc(self.cell_height * p_height, 100)),
+    };
+    c.gdk_cairo_rectangle(cr, &pos);
+    var color = self.rpc.ui.default_colors.fg;
+    if (m.attr_id > 0) {
+        const attr = self.rpc.ui.attr(m.attr_id);
+        if (attr.bg) |bg| {
+            color = bg;
+        }
+        // TODO: blendy blendy blendy
+    }
+    // dbg("cur_bg is {}\n", .{bg});
+    // dbg("{}<-{}, ", .{ pos, bg });
+    c.cairo_set_source_rgba(cr, ccolor(color.r), ccolor(color.g), ccolor(color.b), 0.8);
+    c.cairo_fill(cr);
+
+    if (use_ibus) {
+        if (self.ibus_context) |context| {
+            // FIXME: GTK_STYLE_CLASS_TITLEBAR is available in GTK3 but not GTK4.
+            // gtk_css_boxes_get_content_rect() is available in GTK4 but it's an
+            // internal API and calculate the window edge 32 in GTK3.
+            const yoff = 32;
+            c.ibus_input_context_set_cursor_location_relative(context, pos.x, pos.y + yoff, pos.width, pos.height);
+        }
+    } else {
+        c.gtk_im_context_set_cursor_location(self.im_context, &pos);
+    }
 }
 
 fn pango_pixels_ceil(u: c_int) c_int {

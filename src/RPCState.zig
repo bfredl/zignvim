@@ -306,8 +306,7 @@ fn grid_resize(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
 
     // TODO: not correct for windows, which retain the upper-left
     var char: [UIState.charsize]u8 = undefined;
-    //char[0..2] = .{ ' ', 0 };
-    char[0] = '?';
+    char[0] = ' ';
     char[1] = 0;
     @memset(grid.cell.items, .{ .text = .{ .plain = char }, .attr_id = 0 });
 
