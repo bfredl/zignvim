@@ -3,6 +3,7 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const t = b.standardTargetOptions(.{});
     const opt = b.standardOptimizeOption(.{});
+    const llvm = b.option(bool, "llvm", "use llvm") orelse true;
 
     const io_test = b.step("io_test", "fooka amnitel");
     const io_test_exe = b.addExecutable(.{
@@ -22,6 +23,7 @@ pub fn build(b: *std.Build) void {
         .optimize = opt,
         .target = t,
     });
+    exe_gtk.use_llvm = llvm;
     exe_gtk.linkLibC();
     exe_gtk.linkSystemLibrary("gtk4");
     exe_gtk.linkSystemLibrary("ibus-1.0");
@@ -39,6 +41,7 @@ pub fn build(b: *std.Build) void {
         .optimize = opt,
         .target = t,
     });
+    exe_pango.use_llvm = llvm;
     exe_pango.linkLibC();
     exe_pango.linkSystemLibrary("gtk4");
     exe_pango.linkSystemLibrary("ibus-1.0"); // TODO: OPTIONAL!
