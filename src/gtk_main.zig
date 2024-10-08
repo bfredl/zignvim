@@ -681,7 +681,7 @@ fn init(self: *Self) !void {
     self.rpc = try RPCState.init(allocator);
 }
 
-fn attach(self: *Self) !void {
+fn attach(self: *Self, args: []const ?[*:0]const u8) !void {
     const width: u32, const height: u32 = .{ 80, 25 };
 
     var the_fd: ?i32 = null;
@@ -689,7 +689,7 @@ fn attach(self: *Self) !void {
         the_fd = try std.posix.dup(0);
     }
 
-    self.child = try io.spawn(self.gpa.allocator(), the_fd);
+    self.child = try io.spawn(self.gpa.allocator(), args, the_fd);
 
     var encoder = mpack.encoder(self.enc_buf.writer());
     try io.attach(&encoder, width, height, if (the_fd) |_| @as(i32, 3) else null, self.multigrid);
@@ -712,16 +712,23 @@ fn command_line(
     const self = get_self(data);
 
     self.init() catch @panic("heeee");
+    var argskip: u32 = 0;
     if (argc > 1) {
         if (std.mem.eql(u8, std.mem.span(argv[1]), "--multigrid")) {
             dbg("IT'S MULTIGRID!!!!!\n", .{});
             self.multigrid = true;
+        } else if (std.mem.eql(u8, std.mem.span(argv[1]), "--")) {
+            // ok
         } else {
             dbg("IT'S {s}!!!!!\n", .{argv[1]});
             std.posix.exit(1);
         }
+        argskip += 1;
     }
-    self.attach() catch @panic("cannot attach!");
+
+    const rest_arg = argv[0..@as(usize, @intCast(argc))][1 + argskip ..];
+
+    self.attach(rest_arg) catch @panic("cannot attach!");
 
     const window: *c.GtkWidget = c.gtk_application_window_new(app);
     self.window = g.GTK_WINDOW(window);
