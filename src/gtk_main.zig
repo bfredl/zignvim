@@ -12,6 +12,7 @@ const Self = @This();
 const use_ibus = true;
 
 gpa: std.heap.GeneralPurposeAllocator(.{}),
+app: *c.GtkApplication,
 
 child: std.process.Child = undefined,
 enc_buf: ArrayList(u8) = undefined,
@@ -302,10 +303,14 @@ fn focus_leave(_: *c.GtkEventControllerFocus, data: c.gpointer) callconv(.C) voi
 }
 
 fn on_stdout(_: ?*c.GIOChannel, cond: c.GIOCondition, data: c.gpointer) callconv(.C) c.gboolean {
-    _ = cond;
     // dbg("DATTA\n", .{});
 
     var self = get_self(data);
+
+    if ((cond & c.G_IO_HUP) != 0) {
+        dbg("== HUPPSAN ==\n", .{});
+        c.g_application_quit(g.G_APPLICATION(self.app));
+    }
 
     const oldlen = self.decoder.data.len;
     if (oldlen > 0 and self.decoder.data.ptr != &self.buf) {
@@ -699,7 +704,7 @@ fn attach(self: *Self, args: []const ?[*:0]const u8) !void {
     self.requested_height = height;
 
     const gio = c.g_io_channel_unix_new(self.child.stdout.?.handle);
-    _ = c.g_io_add_watch(gio, c.G_IO_IN, on_stdout, self);
+    _ = c.g_io_add_watch(gio, c.G_IO_IN | c.G_IO_HUP, on_stdout, self);
 }
 
 fn command_line(
@@ -782,18 +787,15 @@ fn command_line(
 
 pub fn main() u8 {
     // TODO: can we refer directly to .gpa in further fields?
-    var self = Self{ .gpa = std.heap.GeneralPurposeAllocator(.{}){} };
 
     const app: *c.GtkApplication = c.gtk_application_new("io.github.bfredl.zignvim", c.G_APPLICATION_HANDLES_COMMAND_LINE);
     defer c.g_object_unref(@ptrCast(app));
 
+    var self = Self{ .gpa = std.heap.GeneralPurposeAllocator(.{}){}, .app = app };
+
     _ = g.g_signal_connect(app, "command-line", g.G_CALLBACK(&command_line), &self);
     // not to be used with command-line??? GIO docs are so confusing
     // _ = g.g_signal_connect(app, "activate", g.G_CALLBACK(&activate), &self);
-    const status = c.g_application_run(
-        g.g_cast(c.GApplication, c.g_application_get_type(), app),
-        @intCast(std.os.argv.len),
-        @ptrCast(std.os.argv.ptr),
-    );
+    const status = c.g_application_run(g.G_APPLICATION(app), @intCast(std.os.argv.len), @ptrCast(std.os.argv.ptr));
     return @intCast(status);
 }

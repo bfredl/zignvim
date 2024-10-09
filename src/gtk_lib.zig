@@ -6,6 +6,10 @@ pub fn g_cast(comptime T: type, gtk_type: c.GType, value: anytype) *T {
     return @ptrCast(c.g_type_check_instance_cast(@ptrCast(@alignCast(value)), gtk_type));
 }
 
+pub fn G_APPLICATION(value: anytype) *c.GApplication {
+    return g_cast(c.GApplication, c.g_application_get_type(), value);
+}
+
 pub fn GTK_WINDOW(value: anytype) *c.GtkWindow {
     return g_cast(c.GtkWindow, c.gtk_window_get_type(), value);
 }
