@@ -84,16 +84,23 @@ fn onKeyPress(self: *Self, keyval: c.guint, keycode: c.guint, mod: c.guint) !voi
     const special: ?[:0]const u8 = switch (keyval) {
         c.GDK_KEY_Left => "Left",
         c.GDK_KEY_Right => "Right",
+        c.GDK_KEY_Up => "Up",
+        c.GDK_KEY_Down => "Down",
+        c.GDK_KEY_Page_Up => "PageUp",
+        c.GDK_KEY_Page_Down => "PageDown",
         else => null,
     };
     var x: [4]u8 = undefined;
 
-    const codepoint = c.gdk_keyval_to_unicode(keyval);
-    // dbg("Hellooooo! {} {} {}\n", .{ keyval, mod, codepoint });
-    if (codepoint == 0 or codepoint > std.math.maxInt(u21)) {
-        return;
-    }
-    const len = std.unicode.utf8Encode(@intCast(codepoint), x[0..x.len]) catch @panic("aaaah");
+    const keystr = special orelse encoded: {
+        const codepoint = c.gdk_keyval_to_unicode(keyval);
+        // dbg("Hellooooo! {} {} {}\n", .{ keyval, mod, codepoint });
+        if (codepoint == 0 or codepoint > std.math.maxInt(u21)) {
+            return;
+        }
+        const len = std.unicode.utf8Encode(@intCast(codepoint), x[0..x.len]) catch @panic("aaaah");
+        break :encoded x[0..len];
+    };
     var did = false;
     // TODO: be insane enough and just reuse enc_buf :]
     defer self.key_buf.items.len = 0;
@@ -104,7 +111,8 @@ fn onKeyPress(self: *Self, keyval: c.guint, keycode: c.guint, mod: c.guint) !voi
     if ((mod & c.GDK_CONTROL_MASK) != 0) {
         try self.key_buf.appendSlice("c-");
     }
-    try self.key_buf.appendSlice(x[0..len]);
+    try self.key_buf.appendSlice(keystr);
+
     if (did) {
         try self.key_buf.appendSlice(">");
     }
@@ -552,6 +560,10 @@ fn draw_run(self: *Self, cr: *c.cairo_t, x: usize, y: usize, bg_width: usize, ce
     if (attr.underline) {
         // TODO: we probably want to emulate underlines ourselves for "special" color
         const attr_item = c.pango_attr_underline_new(c.PANGO_UNDERLINE_SINGLE);
+        c.pango_attr_list_change(attr_list, attr_item);
+    }
+    if (attr.altfont) {
+        const attr_item = c.pango_attr_scale_new(3);
         c.pango_attr_list_change(attr_list, attr_item);
     }
 

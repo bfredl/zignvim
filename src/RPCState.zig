@@ -142,7 +142,7 @@ fn hl_attr_define(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     var j: u32 = 0;
     while (j < rgb_attrs) : (j += 1) {
         const name = try decoder.expectString();
-        const Keys = enum { foreground, background, bold, italic, reverse, underline, Unknown };
+        const Keys = enum { foreground, background, bold, italic, reverse, underline, altfont, Unknown };
         const key = stringToEnum(Keys, name) orelse .Unknown;
         switch (key) {
             .foreground => {
@@ -155,21 +155,9 @@ fn hl_attr_define(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
                 if (debug) dbg(" bg={}", .{num});
                 attr.bg = @bitCast(@as(u24, @intCast(num)));
             },
-            .bold => {
-                attr.bold = try decoder.expectBool();
-                if (debug) dbg(" BOLDEN", .{});
-            },
-            .italic => {
-                attr.italic = try decoder.expectBool();
-                if (debug) dbg(" ITALIC", .{});
-            },
-            .reverse => {
-                attr.reverse = try decoder.expectBool();
-                if (debug) dbg(" REVERSE", .{});
-            },
-            .underline => {
-                attr.underline = try decoder.expectBool();
-                if (debug) dbg(" UNDERLAIN", .{});
+            inline else => |k| {
+                @field(attr, @tagName(k)) = try decoder.expectBool();
+                if (debug) dbg(" {s}", .{@tagName(k)});
             },
             .Unknown => {
                 if (debug) dbg(" {s}", .{name});

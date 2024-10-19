@@ -51,6 +51,7 @@ pub const Attr = struct {
     italic: bool = false,
     underline: bool = false,
     reverse: bool = false,
+    altfont: bool = false,
 };
 
 pub const CursorShape = enum { block, horizontal, vertical };
