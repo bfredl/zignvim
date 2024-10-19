@@ -477,31 +477,41 @@ fn flush(self: *Self) !void {
 }
 
 fn draw_grid(self: *Self, cr: *c.cairo_t, x_off: u32, y_off: u32, grid: *UIState.Grid, rows: u32) !void {
-    for (0..rows) |row| {
-        const basepos = row * grid.cols;
-        var cur_attr: u32 = grid.cell.items[basepos].attr_id;
-        var begin: usize = 0;
-        // dbg("SEGMENTS {}: ", .{row});
-        for (1..grid.cols + 1) |col| {
-            const last_attr = cur_attr;
-            const new = if (col < grid.cols) new: {
-                cur_attr = grid.cell.items[basepos + col].attr_id;
-                break :new cur_attr != last_attr;
-            } else true;
+    var has_alt = false;
+    for (&[_]bool{ false, true }) |do_alt| {
+        for (0..rows) |row| {
+            const basepos = row * grid.cols;
+            var cur_attr: u32 = grid.cell.items[basepos].attr_id;
+            var begin: usize = 0;
+            // dbg("SEGMENTS {}: ", .{row});
+            for (1..grid.cols + 1) |col| {
+                const last_attr = cur_attr;
+                const new = if (col < grid.cols) new: {
+                    cur_attr = grid.cell.items[basepos + col].attr_id;
+                    break :new cur_attr != last_attr;
+                } else true;
 
-            if (new) {
-                // dbg("{}-{}, ", .{ begin, col });
+                if (new) {
+                    // dbg("{}-{}, ", .{ begin, col });
 
-                const attr = self.rpc.ui.attr(last_attr);
+                    const attr = self.rpc.ui.attr(last_attr);
 
-                const x = self.font.width * begin + x_off;
-                const y = row * self.font.height + y_off;
-                try self.draw_run(cr, x, y, col - begin, grid.cell.items[basepos + begin .. basepos + col], attr, false);
+                    if (attr.altfont) {
+                        has_alt = true;
+                    }
 
-                begin = col;
+                    const x = self.font.width * begin + x_off;
+                    const y = row * self.font.height + y_off;
+                    if (do_alt == attr.altfont) {
+                        try self.draw_run(cr, x, y, col - begin, grid.cell.items[basepos + begin .. basepos + col], attr, false);
+                    }
+
+                    begin = col;
+                }
             }
+            // dbg("\n", .{});
         }
-        // dbg("\n", .{});
+        if (!has_alt) break;
     }
 }
 
@@ -539,8 +549,11 @@ fn draw_run(self: *Self, cr: *c.cairo_t, x: usize, y: usize, bg_width: usize, ce
     const text_width = text_end - first_text;
 
     for (text_cells[0..text_width]) |cell| {
-        try text.appendSlice(self.rpc.ui.text(&cell));
+        const txt = self.rpc.ui.text(&cell);
+        if (debug) dbg("txt {s} {d} of len {} ({s})\n", .{ txt, txt, txt.len, @tagName(cell.text) });
+        try text.appendSlice(txt);
     }
+    // try text.append(0); // hahaha
     if (debug) dbg("for text \"{s}\" in ({},{}):\n", .{ text.items, first_text, first_text + text_width });
 
     const attr_list = c.pango_attr_list_new();

@@ -119,7 +119,7 @@ pub fn init(allocator: mem.Allocator) !Self {
 pub fn text(self: *@This(), cell: *const Cell) []const u8 {
     return switch (cell.text) {
         // oo I eat plain toast
-        .plain => |str| str[0 .. std.mem.indexOfScalar(u8, &str, 0) orelse charsize],
+        .plain => |*str| str[0 .. std.mem.indexOfScalar(u8, str, 0) orelse charsize],
         .indexed => |idx| mem.span(@as([*:0]u8, @ptrCast(self.glyph_arena.items[idx..]))),
     };
 }
