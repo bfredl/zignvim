@@ -29,10 +29,7 @@ rows: u16 = 0,
 cols: u16 = 0,
 
 context: *c.PangoContext = undefined,
-//font_name: []u8,
-cell_width: u32 = 0,
-cell_height: u32 = 0,
-font_ascent: u32 = 0,
+font: FontDesc = .{},
 
 multigrid: bool = false,
 requested_width: u32 = 0,
@@ -45,6 +42,14 @@ has_focus: bool = false,
 im_context: if (use_ibus) void else *c.GtkIMContext = undefined,
 ibus_context: if (use_ibus) ?*c.IBusInputContext else void = null,
 ibus_bus: if (use_ibus) *c.IBusBus else void = undefined,
+
+const FontDesc = struct {
+    desc: *c.PangoFontDescription = undefined,
+    //font_name: []u8,
+    width: u32 = 0,
+    height: u32 = 0,
+    ascent: u32 = 0,
+};
 
 fn get_self(data: c.gpointer) *Self {
     return @ptrCast(@alignCast(data));
@@ -119,8 +124,8 @@ fn onMousePress(self: *Self, gesture: *c.GtkGesture, n_press: c.guint, x: c.gdou
 
     // dbg("xitor {d}, yitor {d}\n", .{ x, y });
 
-    const col = @as(u32, @intFromFloat(x)) / self.cell_width;
-    const row = @as(u32, @intFromFloat(y)) / self.cell_height;
+    const col = @as(u32, @intFromFloat(x)) / self.font.width;
+    const row = @as(u32, @intFromFloat(y)) / self.font.height;
 
     dbg("KLIIICK {} {}\n", .{ col, row });
 
@@ -151,8 +156,8 @@ fn onMousePress(self: *Self, gesture: *c.GtkGesture, n_press: c.guint, x: c.gdou
     defer c.cairo_destroy(cr);
 
     const attr = self.rpc.ui.attr(myattr);
-    const xpos = self.cell_width * first;
-    const ypos = row * self.cell_height;
+    const xpos = self.font.width * first;
+    const ypos = row * self.font.height;
     try self.draw_run(cr, xpos, ypos, end - first, gridrow[first..end], attr, true);
 
     // NB: redisplay if we actually change something
@@ -349,14 +354,14 @@ fn area_resize(da: ?*c.GtkDrawingArea, width: c.gint, height: c.gint, data: c.gp
 }
 
 fn onResize(self: *Self, width: u32, height: u32) !void {
-    if (self.cell_width == 0 or width == 0 or height == 0) {
+    if (self.font.width == 0 or width == 0 or height == 0) {
         return;
     }
 
     self.did_resize = true;
 
-    const new_width = @divTrunc(width, self.cell_width);
-    const new_height = @divTrunc(height, self.cell_height);
+    const new_width = @divTrunc(width, self.font.width);
+    const new_height = @divTrunc(height, self.font.height);
     if (new_width != self.requested_width or new_height != self.requested_height) {
         var encoder = mpack.encoder(self.enc_buf.writer());
         try io.try_resize(&encoder, 1, new_width, new_height);
@@ -394,7 +399,7 @@ fn flush(self: *Self) !void {
     const grid = ui.grid(1) orelse return;
 
     // TODO: the right condition for "font[size] changed"
-    if (self.cell_height == 0) {
+    if (self.font.height == 0) {
         try self.set_font("JuliaMono 15");
     }
 
@@ -402,8 +407,8 @@ fn flush(self: *Self) !void {
         dbg("le resize {} {}\n", .{ grid.rows, grid.cols });
         self.rows = grid.rows;
         self.cols = grid.cols;
-        const width: c_int = @intCast(self.cols * self.cell_width);
-        const height: c_int = @intCast(self.rows * self.cell_height);
+        const width: c_int = @intCast(self.cols * self.font.width);
+        const height: c_int = @intCast(self.rows * self.font.height);
 
         dbg("LE METRICS {} {}\n", .{ width, height });
 
@@ -436,19 +441,19 @@ fn flush(self: *Self) !void {
             .window => |w| break :info w,
             else => continue,
         };
-        try self.draw_grid(cr, self.cell_width * win.col, self.cell_height * win.row, win_grid, win_grid.rows);
+        try self.draw_grid(cr, self.font.width * win.col, self.font.height * win.row, win_grid, win_grid.rows);
     }
 
     if (ui.msg) |msg| {
         if (ui.grid(msg.grid)) |msg_grid| {
             // dbg("grid {}: row {} gives {}", .{ msg.grid, msg.row, grid.rows - msg.row });
-            try self.draw_grid(cr, 0, self.cell_height * msg.row, msg_grid, grid.rows - msg.row);
+            try self.draw_grid(cr, 0, self.font.height * msg.row, msg_grid, grid.rows - msg.row);
 
             if (msg.scrolled and msg.row > 0) {
                 const pos: c.GdkRectangle = .{
                     .x = 0,
-                    .y = @intCast(msg.row * self.cell_height - 6),
-                    .width = @intCast(self.cell_width * grid.cols),
+                    .y = @intCast(msg.row * self.font.height - 6),
+                    .width = @intCast(self.font.width * grid.cols),
                     .height = 6,
                 };
                 c.gdk_cairo_rectangle(cr, &pos);
@@ -481,8 +486,8 @@ fn draw_grid(self: *Self, cr: *c.cairo_t, x_off: u32, y_off: u32, grid: *UIState
 
                 const attr = self.rpc.ui.attr(last_attr);
 
-                const x = self.cell_width * begin + x_off;
-                const y = row * self.cell_height + y_off;
+                const x = self.font.width * begin + x_off;
+                const y = row * self.font.height + y_off;
                 try self.draw_run(cr, x, y, col - begin, grid.cell.items[basepos + begin .. basepos + col], attr, false);
 
                 begin = col;
@@ -496,8 +501,8 @@ fn draw_run(self: *Self, cr: *c.cairo_t, x: usize, y: usize, bg_width: usize, ce
     const pos: c.GdkRectangle = .{
         .x = @intCast(x),
         .y = @intCast(y),
-        .width = @intCast(self.cell_width * bg_width),
-        .height = @intCast(self.cell_height),
+        .width = @intCast(self.font.width * bg_width),
+        .height = @intCast(self.font.height),
     };
     if (debug) dbg("ATTR {}\n", .{attr});
     c.gdk_cairo_rectangle(cr, &pos);
@@ -556,9 +561,9 @@ fn draw_run(self: *Self, cr: *c.cairo_t, x: usize, y: usize, bg_width: usize, ce
     // dbg("{}<-{}, ", .{ pos, bg });
     c.cairo_set_source_rgb(cr, ccolor(fg.r), ccolor(fg.g), ccolor(fg.b));
 
-    var xpos = pos.x + @as(c_int, @intCast(self.cell_width * first_text));
+    var xpos = pos.x + @as(c_int, @intCast(self.font.width * first_text));
 
-    const baseline = pos.y + @as(c_int, @intCast(self.font_ascent));
+    const baseline = pos.y + @as(c_int, @intCast(self.font.ascent));
 
     while (item_list) |item| {
         const i: *c.PangoItem = @ptrCast(@alignCast(item.*.data));
@@ -599,19 +604,19 @@ fn draw_cursor(self: *Self, cr: *c.cairo_t) !void {
     const grid = ui.grid(ui.cursor.grid) orelse return;
     switch (grid.info) {
         .window => |win| {
-            grid_x = win.col * self.cell_width;
-            grid_y = win.row * self.cell_height;
+            grid_x = win.col * self.font.width;
+            grid_y = win.row * self.font.height;
         },
         .none => {},
     }
     if (if (ui.msg) |msg| msg.grid == ui.cursor.grid else false) {
-        grid_y = self.cell_height * ui.msg.?.row; // bullll
+        grid_y = self.font.height * ui.msg.?.row; // bullll
     }
     const pos: c.GdkRectangle = .{
-        .x = @intCast(grid_x + self.cell_width * ui.cursor.col),
-        .y = @intCast(grid_y + ui.cursor.row * self.cell_height + @divTrunc(self.cell_height * (100 - p_height), 100)),
-        .width = @intCast(@divTrunc(self.cell_width * p_width, 100)),
-        .height = @intCast(@divTrunc(self.cell_height * p_height, 100)),
+        .x = @intCast(grid_x + self.font.width * ui.cursor.col),
+        .y = @intCast(grid_y + ui.cursor.row * self.font.height + @divTrunc(self.font.height * (100 - p_height), 100)),
+        .width = @intCast(@divTrunc(self.font.width * p_width, 100)),
+        .height = @intCast(@divTrunc(self.font.height * p_height, 100)),
     };
     c.gdk_cairo_rectangle(cr, &pos);
     var color = self.rpc.ui.default_colors.fg;
@@ -656,23 +661,32 @@ fn set_font(self: *Self, font: [:0]const u8) !void {
     // dbg("cc {}\n", .{@ptrToInt(cc)});
     const cairo = c.cairo_create(dummy_surface);
     // dbg("cairso {}\n", .{@ptrToInt(cairo)});
-    const fontdesc = c.pango_font_description_from_string(font);
+    const font_desc = c.pango_font_description_from_string(font);
 
     const pctx = c.pango_cairo_create_context(cairo) orelse @panic("pango pongo");
-    c.pango_context_set_font_description(pctx, fontdesc);
+    c.pango_context_set_font_description(pctx, font_desc);
 
-    const metrics = c.pango_context_get_metrics(pctx, fontdesc, c.pango_context_get_language(pctx));
+    self.font = init_font_desc(pctx, font_desc.?);
+
+    // dbg("le foont terrible {} {}\n", .{ self.font.width, self.font.height });
+    // dbg("deltas {} {} in scale {} \n", .{ @as(c_int, @intCast(self.font.width)) * c.PANGO_SCALE - width, @as(c_int, @intCast(self.font.height)) * c.PANGO_SCALE - height, c.PANGO_SCALE });
+
+    self.context = pctx;
+}
+
+fn init_font_desc(pctx: *c.PangoContext, font_desc: *c.PangoFontDescription) FontDesc {
+    const metrics = c.pango_context_get_metrics(pctx, font_desc, c.pango_context_get_language(pctx));
     const width = c.pango_font_metrics_get_approximate_char_width(metrics);
     const height = c.pango_font_metrics_get_height(metrics);
     const ascent = c.pango_font_metrics_get_ascent(metrics);
-    self.cell_width = @intCast(pango_pixels_ceil(width));
-    self.cell_height = @intCast(pango_pixels_ceil(height));
-    self.font_ascent = @intCast(pango_pixels_ceil(ascent));
 
-    dbg("le foont terrible {} {}\n", .{ self.cell_width, self.cell_height });
-    dbg("deltas {} {} in scale {} \n", .{ @as(c_int, @intCast(self.cell_width)) * c.PANGO_SCALE - width, @as(c_int, @intCast(self.cell_height)) * c.PANGO_SCALE - height, c.PANGO_SCALE });
+    return .{
+        .desc = font_desc,
 
-    self.context = pctx;
+        .width = @intCast(pango_pixels_ceil(width)),
+        .height = @intCast(pango_pixels_ceil(height)),
+        .ascent = @intCast(pango_pixels_ceil(ascent)),
+    };
 }
 
 // TODO: nonsens
