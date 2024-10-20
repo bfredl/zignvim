@@ -82,6 +82,10 @@ fn key_released(_: *c.GtkEventControllerKey, keyval: c.guint, keycode: c.guint, 
 fn onKeyPress(self: *Self, keyval: c.guint, keycode: c.guint, mod: c.guint) !void {
     _ = keycode;
     const special: ?[:0]const u8 = switch (keyval) {
+        c.GDK_KEY_BackSpace => "bs",
+        c.GDK_KEY_Tab => "Tab",
+        c.GDK_KEY_Return => "cr",
+        c.GDK_KEY_Escape => "Esc",
         c.GDK_KEY_Left => "Left",
         c.GDK_KEY_Right => "Right",
         c.GDK_KEY_Up => "Up",
@@ -104,12 +108,18 @@ fn onKeyPress(self: *Self, keyval: c.guint, keycode: c.guint, mod: c.guint) !voi
     var did = false;
     // TODO: be insane enough and just reuse enc_buf :]
     defer self.key_buf.items.len = 0;
-    if ((mod & c.GDK_CONTROL_MASK) != 0 or special != null) {
+    if ((mod & (c.GDK_CONTROL_MASK | c.GDK_ALT_MASK)) != 0 or special != null) {
         try self.key_buf.appendSlice("<");
         did = true;
     }
     if ((mod & c.GDK_CONTROL_MASK) != 0) {
         try self.key_buf.appendSlice("c-");
+    }
+    if ((mod & c.GDK_ALT_MASK) != 0) {
+        try self.key_buf.appendSlice("a-");
+    }
+    if ((special != null) and (mod & c.GDK_SHIFT_MASK) != 0) {
+        try self.key_buf.appendSlice("s-");
     }
     try self.key_buf.appendSlice(keystr);
 
