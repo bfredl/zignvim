@@ -47,9 +47,11 @@ pub const Attr = struct {
     end: u32 = 0,
     fg: ?RGB = null,
     bg: ?RGB = null,
+    sp: ?RGB = null,
     bold: bool = false,
     italic: bool = false,
     underline: bool = false,
+    underdouble: bool = false,
     reverse: bool = false,
     altfont: bool = false,
 };
@@ -68,10 +70,11 @@ pub fn attr(self: *Self, attr_id: u32) Attr {
     return self.attrs.items[if (self.attrs.items.len > attr_id) attr_id else 0];
 }
 
-pub fn get_colors(self: *Self, a: Attr) struct { RGB, RGB } {
+pub fn get_colors(self: *Self, a: Attr) struct { RGB, RGB, RGB } {
     const bg = a.bg orelse self.default_colors.bg;
     const fg = a.fg orelse self.default_colors.fg;
-    return if (a.reverse) .{ fg, bg } else .{ bg, fg };
+    const sp = a.sp orelse self.default_colors.sp;
+    return if (a.reverse) .{ fg, bg, sp } else .{ bg, fg, sp };
 }
 
 pub const Grid = struct {

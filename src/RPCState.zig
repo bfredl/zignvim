@@ -142,7 +142,7 @@ fn hl_attr_define(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     var j: u32 = 0;
     while (j < rgb_attrs) : (j += 1) {
         const name = try decoder.expectString();
-        const Keys = enum { foreground, background, bold, italic, reverse, underline, altfont, Unknown };
+        const Keys = enum { foreground, background, special, bold, italic, reverse, underline, underdouble, altfont, Unknown };
         const key = stringToEnum(Keys, name) orelse .Unknown;
         switch (key) {
             .foreground => {
@@ -154,6 +154,11 @@ fn hl_attr_define(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
                 const num = try decoder.expectUInt();
                 if (debug) dbg(" bg={}", .{num});
                 attr.bg = @bitCast(@as(u24, @intCast(num)));
+            },
+            .special => {
+                const num = try decoder.expectUInt();
+                if (debug) dbg(" sp={}", .{num});
+                attr.sp = @bitCast(@as(u24, @intCast(num)));
             },
             inline else => |k| {
                 @field(attr, @tagName(k)) = try decoder.expectBool();

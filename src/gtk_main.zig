@@ -534,7 +534,7 @@ fn draw_run(self: *Self, cr: *c.cairo_t, x: usize, y: usize, bg_width: usize, ce
     };
     if (debug) dbg("ATTR {}\n", .{attr});
     c.gdk_cairo_rectangle(cr, &pos);
-    const bg, const fg = self.rpc.ui.get_colors(attr);
+    const bg, const fg, const sp = self.rpc.ui.get_colors(attr);
     if (debug) dbg("bg is {}\n", .{bg});
     // dbg("{}<-{}, ", .{ pos, bg });
     c.cairo_set_source_rgb(cr, ccolor(bg.r), ccolor(bg.g), ccolor(bg.b));
@@ -548,80 +548,101 @@ fn draw_run(self: *Self, cr: *c.cairo_t, x: usize, y: usize, bg_width: usize, ce
     while (text_end > 0) : (text_end -= 1) {
         if (!cells[text_end - 1].is_ascii_space()) break;
     }
-    if (text_end == 0) return;
+    if (text_end > 0) {
+        var first_text: usize = 0;
+        while (first_text < text_end) : (first_text += 1) {
+            if (!cells[first_text].is_ascii_space()) break;
+        }
 
-    var first_text: usize = 0;
-    while (first_text < text_end) : (first_text += 1) {
-        if (!cells[first_text].is_ascii_space()) break;
+        const text_cells = cells[first_text..text_end];
+        const text_width = text_end - first_text;
+
+        for (text_cells[0..text_width]) |cell| {
+            const txt = self.rpc.ui.text(&cell);
+            if (debug) dbg("txt {s} {d} of len {} ({s})\n", .{ txt, txt, txt.len, @tagName(cell.text) });
+            try text.appendSlice(txt);
+        }
+        // try text.append(0); // hahaha
+        if (debug) dbg("for text \"{s}\" in ({},{}):\n", .{ text.items, first_text, first_text + text_width });
+
+        const attr_list = c.pango_attr_list_new();
+        const glyphs = g.pango_glyph_string_new() orelse @panic("GLORT");
+
+        if (attr.bold) {
+            // TODO: only two font weights is soo 1990:s+L+ratio+cringe.
+            // map altfont to thinner and altfont+bold to U L T R A B O L D ?
+            const attr_item = c.pango_attr_weight_new(c.PANGO_WEIGHT_BOLD);
+            // NOTE: pango attrs can apply to subranges. by default they apply to the entire range
+            c.pango_attr_list_change(attr_list, attr_item);
+        }
+        if (attr.italic) {
+            const attr_item = c.pango_attr_style_new(c.PANGO_STYLE_ITALIC);
+            c.pango_attr_list_change(attr_list, attr_item);
+        }
+        if (attr.altfont) {
+            const attr_item = c.pango_attr_scale_new(3);
+            c.pango_attr_list_change(attr_list, attr_item);
+        }
+
+        var item_list = c.pango_itemize(self.context, text.items.ptr, 0, @intCast(text.items.len), attr_list, null);
+
+        if (debug) dbg("fg is {}\n", .{fg});
+        // dbg("{}<-{}, ", .{ pos, bg });
+        c.cairo_set_source_rgb(cr, ccolor(fg.r), ccolor(fg.g), ccolor(fg.b));
+
+        var xpos = pos.x + @as(c_int, @intCast(self.font.width * first_text));
+
+        const baseline = pos.y + @as(c_int, @intCast(self.font.ascent));
+
+        while (item_list) |item| {
+            const i: *c.PangoItem = @ptrCast(@alignCast(item.*.data));
+            item_list = c.g_list_delete_link(item, item);
+            if (debug) dbg("ITYM {}\n", .{i.*});
+            const a = &i.analysis;
+
+            // disable pango's RTL handling, must come from nvim itself
+            a.level = 0;
+
+            g.pango_shape_full(text.items.ptr[@intCast(i.offset)..], i.length, text.items.ptr, @intCast(text.items.len), a, glyphs);
+
+            c.cairo_move_to(cr, @floatFromInt(xpos), @floatFromInt(baseline));
+            g.pango_cairo_show_glyph_string(cr, a.font, glyphs);
+
+            const width = pango_pixels_ceil(g.pango_glyph_string_get_width(glyphs));
+            xpos += width;
+            if (debug) dbg("xposss {}\n", .{xpos});
+        }
+
+        // TODO: lifetime extend? or use something other than glib-pango which does dynamic memory like crazy
+        c.pango_attr_list_unref(attr_list);
+        g.pango_glyph_string_free(glyphs);
     }
 
-    const text_cells = cells[first_text..text_end];
-    const text_width = text_end - first_text;
-
-    for (text_cells[0..text_width]) |cell| {
-        const txt = self.rpc.ui.text(&cell);
-        if (debug) dbg("txt {s} {d} of len {} ({s})\n", .{ txt, txt, txt.len, @tagName(cell.text) });
-        try text.appendSlice(txt);
-    }
-    // try text.append(0); // hahaha
-    if (debug) dbg("for text \"{s}\" in ({},{}):\n", .{ text.items, first_text, first_text + text_width });
-
-    const attr_list = c.pango_attr_list_new();
-    const glyphs = g.pango_glyph_string_new() orelse @panic("GLORT");
-
-    if (attr.bold) {
-        // TODO: only two font weights is soo 1990:s+L+ratio+cringe.
-        // map altfont to thinner and altfont+bold to U L T R A B O L D ?
-        const attr_item = c.pango_attr_weight_new(c.PANGO_WEIGHT_BOLD);
-        // NOTE: pango attrs can apply to subranges. by default they apply to the entire range
-        c.pango_attr_list_change(attr_list, attr_item);
-    }
-    if (attr.italic) {
-        const attr_item = c.pango_attr_style_new(c.PANGO_STYLE_ITALIC);
-        c.pango_attr_list_change(attr_list, attr_item);
-    }
     if (attr.underline) {
-        // TODO: we probably want to emulate underlines ourselves for "special" color
-        const attr_item = c.pango_attr_underline_new(c.PANGO_UNDERLINE_SINGLE);
-        c.pango_attr_list_change(attr_list, attr_item);
+        const u_pos: c.GdkRectangle = .{
+            .x = pos.x + 2,
+            .y = pos.y + @as(c_int, @intCast(self.font.ascent + self.font.height / 10)),
+            .width = pos.width - 4,
+            .height = @intCast(self.font.height / 10),
+        };
+        c.gdk_cairo_rectangle(cr, &u_pos);
+        // dbg("{}<-{}, ", .{ pos, bg });
+        c.cairo_set_source_rgb(cr, ccolor(sp.r), ccolor(sp.g), ccolor(sp.b));
+        c.cairo_fill(cr);
     }
-    if (attr.altfont) {
-        const attr_item = c.pango_attr_scale_new(3);
-        c.pango_attr_list_change(attr_list, attr_item);
+    if (attr.underdouble) {
+        // double under is useless, lets make a nice rectangle instead
+        const u_pos: c.GdkRectangle = .{
+            .x = pos.x,
+            .y = pos.y + 1,
+            .width = pos.width,
+            .height = pos.height - 2,
+        };
+        c.gdk_cairo_rectangle(cr, &u_pos);
+        // dbg("{}<-{}, ", .{ pos, bg });
+        c.cairo_set_source_rgb(cr, ccolor(sp.r), ccolor(sp.g), ccolor(sp.b));
+        c.cairo_stroke(cr);
     }
-
-    var item_list = c.pango_itemize(self.context, text.items.ptr, 0, @intCast(text.items.len), attr_list, null);
-
-    if (debug) dbg("fg is {}\n", .{fg});
-    // dbg("{}<-{}, ", .{ pos, bg });
-    c.cairo_set_source_rgb(cr, ccolor(fg.r), ccolor(fg.g), ccolor(fg.b));
-
-    var xpos = pos.x + @as(c_int, @intCast(self.font.width * first_text));
-
-    const baseline = pos.y + @as(c_int, @intCast(self.font.ascent));
-
-    while (item_list) |item| {
-        const i: *c.PangoItem = @ptrCast(@alignCast(item.*.data));
-        item_list = c.g_list_delete_link(item, item);
-        if (debug) dbg("ITYM {}\n", .{i.*});
-        const a = &i.analysis;
-
-        // disable pango's RTL handling, must come from nvim itself
-        a.level = 0;
-
-        g.pango_shape_full(text.items.ptr[@intCast(i.offset)..], i.length, text.items.ptr, @intCast(text.items.len), a, glyphs);
-
-        c.cairo_move_to(cr, @floatFromInt(xpos), @floatFromInt(baseline));
-        g.pango_cairo_show_glyph_string(cr, a.font, glyphs);
-
-        const width = pango_pixels_ceil(g.pango_glyph_string_get_width(glyphs));
-        xpos += width;
-        if (debug) dbg("xposss {}\n", .{xpos});
-    }
-
-    // TODO: lifetime extend? or use something other than glib-pango which does dynamic memory like crazy
-    c.pango_attr_list_unref(attr_list);
-    g.pango_glyph_string_free(glyphs);
 }
 
 fn draw_cursor(self: *Self, cr: *c.cairo_t) !void {
