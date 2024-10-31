@@ -142,7 +142,7 @@ fn hl_attr_define(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     var j: u32 = 0;
     while (j < rgb_attrs) : (j += 1) {
         const name = try decoder.expectString();
-        const Keys = enum { foreground, background, special, bold, italic, reverse, underline, underdouble, altfont, Unknown };
+        const Keys = enum { foreground, background, special, bold, italic, reverse, underline, underdouble, undercurl, altfont, Unknown };
         const key = stringToEnum(Keys, name) orelse .Unknown;
         switch (key) {
             .foreground => {

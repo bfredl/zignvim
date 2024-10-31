@@ -51,6 +51,7 @@ pub const Attr = struct {
     bold: bool = false,
     italic: bool = false,
     underline: bool = false,
+    undercurl: bool = false,
     underdouble: bool = false,
     reverse: bool = false,
     altfont: bool = false,

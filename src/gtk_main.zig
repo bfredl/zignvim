@@ -591,8 +591,11 @@ fn draw_run(self: *Self, cr: *c.cairo_t, x: usize, y: usize, bg_width: usize, ce
         c.cairo_set_source_rgb(cr, ccolor(fg.r), ccolor(fg.g), ccolor(fg.b));
 
         var xpos = pos.x + @as(c_int, @intCast(self.font.width * first_text));
+        if (attr.altfont and attr.undercurl) {
+            xpos = xpos - 7 * @as(c_int, @intCast(self.font.width));
+        }
 
-        const baseline = pos.y + @as(c_int, @intCast(self.font.ascent));
+        const baseline = pos.y + @as(c_int, @intCast(self.font.ascent)) + if (attr.altfont) @as(c_int, @intFromFloat(0.15 * @as(f64, @floatFromInt(self.font.height)))) else 0;
 
         while (item_list) |item| {
             const i: *c.PangoItem = @ptrCast(@alignCast(item.*.data));
@@ -757,7 +760,7 @@ fn init(self: *Self) !void {
 }
 
 fn attach(self: *Self, args: []const ?[*:0]const u8) !void {
-    const width: u32, const height: u32 = .{ 80, 25 };
+    const width: u32, const height: u32 = .{ 97, 38 };
 
     var the_fd: ?i32 = null;
     if (false) {
