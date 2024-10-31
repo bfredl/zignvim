@@ -760,7 +760,7 @@ fn init(self: *Self) !void {
 }
 
 fn attach(self: *Self, args: []const ?[*:0]const u8) !void {
-    const width: u32, const height: u32 = .{ 97, 38 };
+    const width: u32, const height: u32 = .{ 97, 39 };
 
     var the_fd: ?i32 = null;
     if (false) {
