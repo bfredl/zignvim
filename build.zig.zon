@@ -11,6 +11,11 @@
             .hash = "vaxis-0.1.0-BWNV_JEMCQBskZQsnlzh6GoyHSDgOi41bCoZIB2pW-E7",
             .lazy = true,
         },
+        .xev = .{
+            .url = "git+https://github.com/mitchellh/libxev#94ed6af7b2aaaeab987fbf87fcee410063df715b",
+            .hash = "libxev-0.0.0-86vtc-zkEgB7uv1i0Sa6ytJETZQi_lHJrImu9mLb9moi",
+            .lazy = true,
+        },
     },
     .paths = .{
         "build.zig",
