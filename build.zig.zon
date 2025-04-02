@@ -1,0 +1,20 @@
+.{
+    .name = .zignvim,
+    .version = "0.0.0",
+    .fingerprint = 0xdd24fc0d4c332d18, // Changing this has security and trust implications.
+
+    .minimum_zig_version = "0.14.0",
+
+    .dependencies = .{
+        .vaxis = .{
+            .url = "git+https://github.com/rockorager/libvaxis#c49abb48241e11682b7b8b05c79d20773f1ded98",
+            .hash = "vaxis-0.1.0-BWNV_JEMCQBskZQsnlzh6GoyHSDgOi41bCoZIB2pW-E7",
+            .lazy = true,
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}
