@@ -174,7 +174,7 @@ pub fn dump_grid(self: *Self, id: u32) void {
             }
             dbg("{s}", .{self.text(&cell)});
         }
-        dbg("\n", .{});
+        dbg("\r\n", .{});
     }
-    dbg("GRID end ======\n", .{});
+    dbg("\x1b[0mGRID end ======\n", .{});
 }
