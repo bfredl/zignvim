@@ -4,6 +4,7 @@ const xev = @import("xev");
 const RPCState = @import("RPCState.zig");
 const mpack = @import("./mpack.zig");
 const io = @import("io_native.zig");
+const ctlseqs = vaxis.ctlseqs;
 
 const Self = @This();
 
@@ -11,6 +12,7 @@ allocator: std.mem.Allocator,
 loop: xev.Loop,
 parser: vaxis.Parser,
 child: std.process.Child = undefined,
+tty: vaxis.Tty,
 
 enc_buf: std.ArrayListUnmanaged(u8) = .{},
 
@@ -25,26 +27,24 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const alloc = gpa.allocator();
 
-    var tty = try vaxis.Tty.init();
-    defer tty.deinit();
-
-    const ttyw = tty.anyWriter();
-
-    var vx = try vaxis.init(alloc, .{});
-    defer vx.deinit(alloc, ttyw);
-
     // try vx.enterAltScreen(ttyw);
 
+    var vx = try vaxis.init(alloc, .{});
     var self: Self = .{
         .parser = .{ .grapheme_data = &vx.unicode.width_data.g_data },
         .rpc = try .init(alloc),
         .loop = try xev.Loop.init(.{}),
         .allocator = alloc,
+        .tty = try .init(),
     };
     defer self.loop.deinit();
+    defer self.tty.deinit();
 
-    const stream = xev.Stream.initFd(tty.fd);
+    const ttyw = self.tty.anyWriter();
+    const stream = xev.Stream.initFd(self.tty.fd);
     defer stream.deinit();
+
+    defer vx.deinit(alloc, ttyw);
 
     self.decoder = mpack.SkipDecoder{ .data = self.buf_nvim[0..0] };
     var read_buf: [1024]u8 = undefined;
@@ -98,7 +98,6 @@ fn ttyReadCb(
         seq_start += result.n;
 
         const event = result.event orelse continue;
-        std.debug.print("event {}\r\n", .{event});
 
         switch (event) {
             .key_press => |k| {
@@ -106,13 +105,15 @@ fn ttyReadCb(
                     self.doCommit(text) catch @panic("RETURN TO SENDER");
                 } else if (k.codepoint < 32) {
                     self.doCommit(&.{@intCast(k.codepoint)}) catch @panic("RETURN TO SENDER");
+                } else {
+                    std.debug.print("keypress {}\r\n", .{k});
                 }
             },
-            else => {},
+            else => std.debug.print("event {}\r\n", .{event}),
         }
     }
 
-    if (n > 0 and slice[0] == 3) {
+    if (false and n > 0 and slice[0] == 3) {
         self.loop.stop();
         return .disarm;
     }
@@ -172,6 +173,7 @@ fn nvimReadCb(
     const n = r catch |err| switch (err) {
         error.EOF => {
             std.debug.print("nvim EOF!\n", .{});
+            self.loop.stop();
             return .disarm;
         },
         else => {
@@ -214,7 +216,33 @@ fn nvimReadCb(
 }
 
 fn flush(self: *Self) !void {
-    self.rpc.ui.dump_grid(1);
+    const ui = &self.rpc.ui;
+    const g = ui.grid(1) orelse return;
+    // TODO: buffered writing?
+    const tty = self.tty.anyWriter();
+
+    try tty.writeAll(ctlseqs.home);
+    var attr_id: u32 = 0;
+    for (0..g.rows) |row| {
+        const basepos = row * g.cols;
+        for (0..g.cols) |col| {
+            const cell = g.cell.items[basepos + col];
+
+            if (cell.attr_id != attr_id) {
+                attr_id = cell.attr_id;
+                const slice = if (attr_id > 0) theslice: {
+                    // TODO: cached slices are still cool, but we should build them using vaxis
+                    const islice = ui.attrs.items[attr_id];
+                    break :theslice ui.attr_arena.items[islice.start..islice.end];
+                } else ctlseqs.sgr_reset;
+                try tty.writeAll(slice);
+            }
+            try tty.writeAll(ui.text(&cell));
+        }
+        try tty.writeAll("\r\n");
+    }
+    try tty.writeAll(ctlseqs.sgr_reset);
+    try tty.print(ctlseqs.cup, .{ ui.cursor.row + 1, ui.cursor.col + 1 });
 }
 
 const Event = union(enum) {
