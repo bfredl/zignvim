@@ -54,9 +54,7 @@ pub fn main() !void {
 
     try self.attach(&.{});
 
-    std.debug.print("enter\r\n", .{});
     try self.loop.run(.until_done);
-    std.debug.print("exit\r\n", .{});
 }
 
 fn ttyReadCb(
@@ -102,16 +100,17 @@ fn ttyReadCb(
         switch (event) {
             .key_press => |k| {
                 if (k.text) |text| {
-                    self.doCommit(text) catch @panic("RETURN TO SENDER");
+                    self.enqueueInput(text);
                 } else if (k.codepoint < 32) {
-                    self.doCommit(&.{@intCast(k.codepoint)}) catch @panic("RETURN TO SENDER");
+                    self.enqueueInput(&.{@intCast(k.codepoint)});
                 } else if (k.codepoint == 127) {
-                    self.doCommit("<bs>") catch @panic("RETURN TO SENDER");
+                    self.enqueueInput("<bs>");
                 } else if (k.mods.ctrl == true and k.mods.alt == false and k.codepoint >= 'a' and k.codepoint <= 'z') {
-                    self.doCommit(&.{@intCast(k.codepoint - 'a' + 1)}) catch @panic("RETURN TO SENDER");
+                    self.enqueueInput(&.{@intCast(k.codepoint - 'a' + 1)});
                 } else {
                     std.debug.print("keypress {}\r\n", .{k});
                 }
+                self.flush_input() catch @panic("RETURN TO SENDER");
             },
             else => std.debug.print("event {}\r\n", .{event}),
         }
@@ -154,11 +153,10 @@ fn flush_input(self: *Self) !void {
     self.enc_buf.items.len = 0;
 }
 
-fn doCommit(self: *Self, str: []const u8) !void {
+fn enqueueInput(self: *Self, str: []const u8) void {
     // dbg("aha: {s}\n", .{str});
     const encoder = mpack.encoder(self.enc_buf.writer(self.allocator));
-    try io.unsafe_input(encoder, str);
-    try self.flush_input();
+    io.unsafe_input(encoder, str) catch @panic("memory error");
 }
 
 fn nvimReadCb(

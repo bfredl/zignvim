@@ -302,8 +302,6 @@ fn grid_resize(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     char[0] = ' ';
     char[1] = 0;
     @memset(grid.cell.items, .{ .text = .{ .plain = char }, .attr_id = 0 });
-
-    dbg("REZISED {}: {} x {}\n", .{ grid_id, grid.cols, grid.rows });
 }
 
 fn grid_clear(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
@@ -316,7 +314,6 @@ fn grid_clear(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     self.event_calls -= 1;
 
     const grid = self.ui.grid(@intCast(grid_id)) orelse return error.InvalidUIState;
-    dbg("kireeee {}: {} {}\n", .{ grid_id, grid.rows, grid.cols });
     var char: [UIState.charsize]u8 = undefined;
     //char[0..2] = .{ ' ', 0 };
     char[0] = ' ';
