@@ -105,6 +105,10 @@ fn ttyReadCb(
                     self.doCommit(text) catch @panic("RETURN TO SENDER");
                 } else if (k.codepoint < 32) {
                     self.doCommit(&.{@intCast(k.codepoint)}) catch @panic("RETURN TO SENDER");
+                } else if (k.codepoint == 127) {
+                    self.doCommit("<bs>") catch @panic("RETURN TO SENDER");
+                } else if (k.mods.ctrl == true and k.mods.alt == false and k.codepoint >= 'a' and k.codepoint <= 'z') {
+                    self.doCommit(&.{@intCast(k.codepoint - 'a' + 1)}) catch @panic("RETURN TO SENDER");
                 } else {
                     std.debug.print("keypress {}\r\n", .{k});
                 }
