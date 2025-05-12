@@ -185,23 +185,7 @@ fn nvimReadCb(
     };
 
     self.decoder.data.len += n;
-
-    while (self.decoder.data.len > 0) {
-        self.rpc.process(&self.decoder) catch |err| {
-            switch (err) {
-                error.EOFError => {
-                    // dbg("!!interrupted. {} bytes left in state {}\n", .{ self.decoder.data.len, self.rpc.state });
-                    break;
-                },
-                error.FlushCondition => {
-                    // dbg("!!flushed. but {} bytes left in state {}\n", .{ self.decoder.data.len, self.rpc.state });
-                    self.flush() catch @panic("NotLikeThis");
-                    continue; // there might be more data after the flush
-                },
-                else => @panic("go crazy yea"),
-            }
-        };
-    }
+    self.rpc.process(&self.decoder) catch @panic("go crazy yea");
 
     // move any unhandled RPC data to start
     if (self.decoder.data.len > 0) {
@@ -217,7 +201,7 @@ fn nvimReadCb(
     return .disarm;
 }
 
-fn flush(self: *Self) !void {
+pub fn cb_flush(self: *Self) !void {
     const ui = &self.rpc.ui;
     const g = ui.grid(1) orelse return;
     // TODO: buffered writing?
@@ -246,10 +230,3 @@ fn flush(self: *Self) !void {
     try tty.writeAll(ctlseqs.sgr_reset);
     try tty.print(ctlseqs.cup, .{ ui.cursor.row + 1, ui.cursor.col + 1 });
 }
-
-const Event = union(enum) {
-    key_press: vaxis.Key,
-    winsize: vaxis.Winsize,
-    focus_in,
-    foo: u8,
-};

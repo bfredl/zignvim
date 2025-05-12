@@ -40,7 +40,7 @@ pub fn init(allocator: mem.Allocator) !Self {
     return .{ .ui = try .init(allocator) };
 }
 
-pub fn process(self: *Self, decoder: *mpack.SkipDecoder) !void {
+fn process_inner(self: *Self, decoder: *mpack.SkipDecoder) !void {
     // dbg("haii {}\n", .{decoder.data.len});
 
     while (true) {
@@ -53,6 +53,13 @@ pub fn process(self: *Self, decoder: *mpack.SkipDecoder) !void {
             inline else => |tag| @field(Self, @tagName(tag))(self, decoder),
         };
     }
+}
+
+pub fn process(self: *Self, decoder: *mpack.SkipDecoder) !void {
+    return self.process_inner(decoder) catch |e| switch (e) {
+        error.EOFError => {}, // recoverable when more data is available
+        else => return e,
+    };
 }
 
 fn next_msg(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
@@ -391,7 +398,11 @@ fn flush(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     base_decoder.toSkip(1);
     self.event_calls -= 1;
 
-    return error.FlushCondition;
+    try self.main().cb_flush();
+}
+
+fn main(self: *Self) *@import("root") {
+    return @fieldParentPtr("rpc", self);
 }
 
 const CellState = struct {

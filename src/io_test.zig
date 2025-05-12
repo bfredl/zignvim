@@ -1,13 +1,18 @@
 const std = @import("std");
 const ArrayList = std.ArrayList;
 const mpack = @import("./mpack.zig");
+const RPCState = @import("./RPCState.zig");
 
 const io_native = @import("./io_native.zig");
 
+rpc: RPCState,
+
+pub fn cb_flush(self: *@This()) !void {
+    self.rpc.ui.dump_grid(1);
+}
+
 pub fn main() !void {
-    // And I Am abandoned by the light
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    // They said I’m doomed to be a child
     var child = try io_native.spawn(gpa.allocator(), &[_]?[*:0]const u8{}, null);
 
     const ByteArray = ArrayList(u8);
@@ -17,5 +22,22 @@ pub fn main() !void {
     try io_native.attach(&encoder, 80, 25, null, false);
     try child.stdin.?.writeAll(x.items);
 
-    try io_native.dummy_loop(&child.stdout.?, gpa.allocator());
+    try dummy_loop(&child.stdout.?, gpa.allocator());
+}
+
+fn dummy_loop(stdout: anytype, allocator: std.mem.Allocator) !void {
+    var buf: [1024]u8 = undefined;
+    var decoder = mpack.SkipDecoder{ .data = buf[0..0] };
+    var self: @This() = .{ .rpc = try RPCState.init(allocator) };
+
+    while (true) {
+        const oldlen = decoder.data.len;
+        if (oldlen > 0 and decoder.data.ptr != &buf) {
+            // TODO: avoid move if remaining space is plenty (like > 900)
+            std.mem.copyForwards(u8, &buf, decoder.data);
+        }
+        const lenny = try stdout.read(buf[oldlen..]);
+        decoder.data = buf[0 .. oldlen + lenny];
+        try self.rpc.process(&decoder);
+    }
 }

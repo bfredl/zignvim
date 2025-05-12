@@ -116,7 +116,7 @@ pub const ValueHead = union(enum) {
 
 pub const MpackError = error{
     MalformatedDataError,
-    // often recoverable, by throwing away innermost decoder
+    //recoverable, by throwing away innermost decoder
     EOFError,
     UnexpectedTagError,
     InvalidDecodeOperation,

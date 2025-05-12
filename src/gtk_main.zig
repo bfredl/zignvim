@@ -344,22 +344,7 @@ fn on_stdout(_: ?*c.GIOChannel, cond: c.GIOCondition, data: c.gpointer) callconv
     const lenny = stdout.read(self.buf[oldlen..]) catch @panic("call for help");
     self.decoder.data = self.buf[0 .. oldlen + lenny];
 
-    while (self.decoder.data.len > 0) {
-        self.rpc.process(&self.decoder) catch |err| {
-            switch (err) {
-                error.EOFError => {
-                    // dbg("!!interrupted. {} bytes left in state {}\n", .{ self.decoder.data.len, self.rpc.state });
-                    break;
-                },
-                error.FlushCondition => {
-                    // dbg("!!flushed. but {} bytes left in state {}\n", .{ self.decoder.data.len, self.rpc.state });
-                    self.flush() catch @panic("NotLikeThis");
-                    continue; // there might be more data after the flush
-                },
-                else => @panic("go crazy yea"),
-            }
-        };
-    }
+    self.rpc.process(&self.decoder) catch @panic("go crazy yea");
 
     return 1;
 }
@@ -409,7 +394,7 @@ fn ccolor(cval: u8) f64 {
     return @as(f64, @floatFromInt(cval)) / max;
 }
 
-fn flush(self: *Self) !void {
+pub fn cb_flush(self: *Self) !void {
     // dbg("le flush\n", .{});
     // self.rpc.dump_grid(0);
 
