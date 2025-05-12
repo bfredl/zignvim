@@ -201,6 +201,12 @@ fn nvimReadCb(
     return .disarm;
 }
 
+// note: RPC callbacks happen in the nvim read callback. heavy work need to be scheduled..
+pub fn cb_grid_line(self: *Self, grid: u32, row: u32, start_col: u32, end_col: u32) !void {
+    _ = self;
+    std.debug.print("boll: {} {}, {}-{}", .{ grid, row, start_col, end_col });
+}
+
 pub fn cb_flush(self: *Self) !void {
     const ui = &self.rpc.ui;
     const g = ui.grid(1) orelse return;

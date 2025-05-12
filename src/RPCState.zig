@@ -398,7 +398,7 @@ fn flush(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     base_decoder.toSkip(1);
     self.event_calls -= 1;
 
-    try self.main().cb_flush();
+    try main(self).cb_flush();
 }
 
 fn main(self: *Self) *@import("root") {
@@ -407,8 +407,10 @@ fn main(self: *Self) *@import("root") {
 
 const CellState = struct {
     event_extra_args: usize,
+    grid_id: u32,
     grid: *UIState.Grid,
     row: u32,
+    start_col: u32,
     col: u32,
     ncells: u32,
     attr_id: u32,
@@ -431,8 +433,10 @@ fn grid_line(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
 
         self.event_state = .{ .cell = .{
             .event_extra_args = iarg - 4,
+            .grid_id = @intCast(grid_id),
             .grid = grid,
             .row = @intCast(row),
+            .start_col = @intCast(col),
             .col = @intCast(col),
             .ncells = ncells,
             .attr_id = 0,
@@ -476,6 +480,8 @@ fn next_cell(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
 
         s.ncells -= 1;
     }
+
+    try main(self).cb_grid_line(s.grid_id, s.row, s.start_col, s.col);
 
     base_decoder.toSkip(s.event_extra_args);
     self.state = .redraw_call;

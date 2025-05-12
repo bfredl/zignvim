@@ -7,6 +7,11 @@ const io_native = @import("./io_native.zig");
 
 rpc: RPCState,
 
+pub fn cb_grid_line(self: *@This(), grid: u32, row: u32, start_col: u32, end_col: u32) !void {
+    _ = self;
+    std.debug.print("boll: {} {}, {}-{}\n", .{ grid, row, start_col, end_col });
+}
+
 pub fn cb_flush(self: *@This()) !void {
     self.rpc.ui.dump_grid(1);
 }

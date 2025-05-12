@@ -471,6 +471,11 @@ pub fn cb_flush(self: *Self) !void {
     c.gtk_widget_queue_draw(g.GTK_WIDGET(self.da));
 }
 
+pub fn cb_grid_line(self: *Self, grid: u32, row: u32, start_col: u32, end_col: u32) !void {
+    _ = self;
+    std.debug.print("boll: {} {}, {}-{}\n", .{ grid, row, start_col, end_col });
+}
+
 fn draw_grid(self: *Self, cr: *c.cairo_t, x_off: u32, y_off: u32, grid: *UIState.Grid, rows: u32) !void {
     var has_alt = false;
     for (&[_]bool{ false, true }) |do_alt| {
