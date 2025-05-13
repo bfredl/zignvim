@@ -16,6 +16,24 @@ tty: vaxis.Tty,
 
 enc_buf: std.ArrayListUnmanaged(u8) = .{},
 
+// buf only for cell rendering. high prio messages might be sent directly
+// or use another buf
+render: struct {
+    buf: std.ArrayListUnmanaged(u8) = .{},
+    // this is the position emitting buf would take you to. might
+    // want another for "assumed start position"
+    pos_r: u32 = 0,
+    pos_c: u32 = 0,
+    attr_id: ?u32 = null,
+
+    pub fn print(self: *@This(), comptime fmt: []const u8, vals: anytype) !void {
+        try self.buf.writer(@as(*Self, @fieldParentPtr("render", self)).allocator).print(fmt, vals);
+    }
+    pub fn put(self: *@This(), str: []const u8) !void {
+        try self.buf.writer(@as(*Self, @fieldParentPtr("render", self)).allocator).writeAll(str);
+    }
+} = .{},
+
 buf_nvim: [1024]u8 = undefined,
 decoder: mpack.SkipDecoder = undefined,
 rpc: RPCState,
@@ -201,17 +219,58 @@ fn nvimReadCb(
     return .disarm;
 }
 
-// note: RPC callbacks happen in the nvim read callback. heavy work need to be scheduled..
-pub fn cb_grid_line(self: *Self, grid: u32, row: u32, start_col: u32, end_col: u32) !void {
-    _ = self;
-    std.debug.print("boll: {} {}, {}-{}", .{ grid, row, start_col, end_col });
+pub fn attr_slice(self: *Self, id: u32) []const u8 {
+    if (id > 0 and id < self.rpc.ui.attrs.items.len) {
+        // TODO: cached slices are still cool, but we should build them using vaxis
+        const islice = self.rpc.ui.attrs.items[id];
+        return self.rpc.ui.attr_arena.items[islice.start..islice.end];
+    }
+    return ctlseqs.sgr_reset;
 }
 
-pub fn cb_flush(self: *Self) !void {
+pub fn cb_grid_clear(self: *Self, grid: u32) !void {
+    self.render.buf.items.len = 0;
+    if (grid != 1) return;
+    try self.render.put(ctlseqs.home ++ ctlseqs.erase_below_cursor);
+    self.render.pos_r = 0;
+    self.render.pos_c = 0;
+}
+
+// note: RPC callbacks happen in the nvim read callback. heavy work need to be scheduled..
+pub fn cb_grid_line(self: *Self, grid: u32, row: u32, start_col: u32, end_col: u32) !void {
+    dbg("boll: {} {}, {}-{}\n", .{ grid, row, start_col, end_col });
+    const render = &self.render;
     const ui = &self.rpc.ui;
     const g = ui.grid(1) orelse return;
+    const basepos = row * g.cols;
+
+    if (render.buf.items.len == 0 or render.pos_r != row or render.pos_c != start_col) {
+        try render.print(ctlseqs.cup, .{ row + 1, start_col + 1 });
+        render.pos_r = row;
+    }
+
+    var c = start_col;
+    var attr_id = render.attr_id;
+    while (c < end_col) : (c += 1) {
+        const cell = &g.cell.items[basepos + c];
+        if (cell.attr_id != attr_id) {
+            attr_id = cell.attr_id;
+            try render.put(self.attr_slice(cell.attr_id));
+        }
+        try render.put(ui.text(cell));
+    }
+    render.pos_c = c;
+    render.attr_id = attr_id;
+
+    // TODO: flow control. like check if cell buffer is almost full at the end of nvimReadCb ?
+}
+const dbg = std.debug.print;
+
+pub fn put_grid(self: *Self) !void {
     // TODO: buffered writing?
     const tty = self.tty.anyWriter();
+    const ui = &self.rpc.ui;
+    const g = ui.grid(1) orelse return;
 
     try tty.writeAll(ctlseqs.home);
     var attr_id: u32 = 0;
@@ -222,17 +281,22 @@ pub fn cb_flush(self: *Self) !void {
 
             if (cell.attr_id != attr_id) {
                 attr_id = cell.attr_id;
-                const slice = if (attr_id > 0) theslice: {
-                    // TODO: cached slices are still cool, but we should build them using vaxis
-                    const islice = ui.attrs.items[attr_id];
-                    break :theslice ui.attr_arena.items[islice.start..islice.end];
-                } else ctlseqs.sgr_reset;
-                try tty.writeAll(slice);
+                try tty.writeAll(self.attr_slice(attr_id));
             }
             try tty.writeAll(ui.text(&cell));
         }
         try tty.writeAll("\r\n");
     }
+}
+
+pub fn cb_flush(self: *Self) !void {
+    const ui = &self.rpc.ui;
+    const tty = self.tty.anyWriter();
     try tty.writeAll(ctlseqs.sgr_reset);
+    dbg("flish: {}\n", .{self.render.buf.items.len});
+    try tty.writeAll(self.render.buf.items);
+    self.render.buf.items.len = 0;
+
+    // only if needed
     try tty.print(ctlseqs.cup, .{ ui.cursor.row + 1, ui.cursor.col + 1 });
 }

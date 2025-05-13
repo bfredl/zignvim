@@ -327,6 +327,8 @@ fn grid_clear(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     char[1] = 0;
 
     @memset(grid.cell.items, .{ .text = .{ .plain = char }, .attr_id = 0 });
+
+    try main(self).cb_grid_clear(@intCast(grid_id));
 }
 
 fn grid_scroll(self: *Self, base_decoder: *mpack.SkipDecoder) !void {

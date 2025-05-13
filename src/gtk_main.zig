@@ -471,6 +471,11 @@ pub fn cb_flush(self: *Self) !void {
     c.gtk_widget_queue_draw(g.GTK_WIDGET(self.da));
 }
 
+pub fn cb_grid_clear(self: *Self, grid: u32) !void {
+    _ = self;
+    std.debug.print("kireee: {} \n", .{grid});
+}
+
 pub fn cb_grid_line(self: *Self, grid: u32, row: u32, start_col: u32, end_col: u32) !void {
     _ = self;
     std.debug.print("boll: {} {}, {}-{}\n", .{ grid, row, start_col, end_col });

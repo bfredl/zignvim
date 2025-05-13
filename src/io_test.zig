@@ -6,13 +6,19 @@ const RPCState = @import("./RPCState.zig");
 const io_native = @import("./io_native.zig");
 
 rpc: RPCState,
+const Self = @This();
 
-pub fn cb_grid_line(self: *@This(), grid: u32, row: u32, start_col: u32, end_col: u32) !void {
+pub fn cb_grid_clear(self: *Self, grid: u32) !void {
+    _ = self;
+    std.debug.print("kireee: {} \n", .{grid});
+}
+
+pub fn cb_grid_line(self: *Self, grid: u32, row: u32, start_col: u32, end_col: u32) !void {
     _ = self;
     std.debug.print("boll: {} {}, {}-{}\n", .{ grid, row, start_col, end_col });
 }
 
-pub fn cb_flush(self: *@This()) !void {
+pub fn cb_flush(self: *Self) !void {
     self.rpc.ui.dump_grid(1);
 }
 
