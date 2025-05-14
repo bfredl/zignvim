@@ -25,12 +25,17 @@ render: struct {
     pos_r: u32 = 0,
     pos_c: u32 = 0,
     attr_id: ?u32 = null,
+    const Render = @This();
 
-    pub fn print(self: *@This(), comptime fmt: []const u8, vals: anytype) !void {
+    pub fn print(self: *Render, comptime fmt: []const u8, vals: anytype) !void {
         try self.buf.writer(@as(*Self, @fieldParentPtr("render", self)).allocator).print(fmt, vals);
     }
-    pub fn put(self: *@This(), str: []const u8) !void {
+    pub fn put(self: *Render, str: []const u8) !void {
         try self.buf.writer(@as(*Self, @fieldParentPtr("render", self)).allocator).writeAll(str);
+    }
+
+    pub fn cup(self: *Render, row: u32, col: u32) !void {
+        try self.print(ctlseqs.cup, .{ row + 1, col + 1 });
     }
 } = .{},
 
@@ -236,6 +241,32 @@ pub fn cb_grid_clear(self: *Self, grid: u32) !void {
     self.render.pos_c = 0;
 }
 
+const csr = "\x1b[{};{}r";
+
+pub fn cb_grid_scroll(self: *Self, grid: u32, top: u32, bot: u32, left: u32, right: u32, rows: i32) !void {
+    std.debug.print("scrollen {}: {}-{} X {}-{} delta {}\n", .{ grid, top, bot, left, right, rows });
+    const render = &self.render;
+    const top_bot = true;
+
+    if (top_bot) {
+        try render.print(csr, .{ top + 1, bot });
+    }
+    try render.cup(top, left);
+    try render.put(ctlseqs.sgr_reset);
+    if (rows > 0) {
+        try render.print("\x1b[{}M", .{rows});
+    } else if (rows < 0) {
+        try render.print("\x1b[{}L", .{-rows});
+    }
+    if (top_bot) {
+        try render.put("\x1b[r");
+    }
+    render.pos_r = invalid_fixme;
+    render.pos_c = invalid_fixme;
+}
+
+const invalid_fixme = 0xFFFFFFFF;
+
 // note: RPC callbacks happen in the nvim read callback. heavy work need to be scheduled..
 pub fn cb_grid_line(self: *Self, grid: u32, row: u32, start_col: u32, end_col: u32) !void {
     dbg("boll: {} {}, {}-{}\n", .{ grid, row, start_col, end_col });
@@ -245,7 +276,7 @@ pub fn cb_grid_line(self: *Self, grid: u32, row: u32, start_col: u32, end_col: u
     const basepos = row * g.cols;
 
     if (render.buf.items.len == 0 or render.pos_r != row or render.pos_c != start_col) {
-        try render.print(ctlseqs.cup, .{ row + 1, start_col + 1 });
+        try render.cup(row, start_col);
         render.pos_r = row;
     }
 

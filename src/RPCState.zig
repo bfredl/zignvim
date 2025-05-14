@@ -338,8 +338,8 @@ fn grid_scroll(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     const grid_id: u32 = @intCast(try decoder.expectUInt());
     const top: i32 = @intCast(try decoder.expectUInt());
     const bot: i32 = @intCast(try decoder.expectUInt());
-    const left: usize = @intCast(try decoder.expectUInt());
-    const right: usize = @intCast(try decoder.expectUInt());
+    const left: u32 = @intCast(try decoder.expectUInt());
+    const right: u32 = @intCast(try decoder.expectUInt());
     const rows: i32 = @intCast(try decoder.expectInt());
     const cols: i32 = @intCast(try decoder.expectInt());
 
@@ -349,6 +349,7 @@ fn grid_scroll(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
 
     if (cols != 0) {
         dbg("ACHTUNG: column scrolling not implemented\n", .{});
+        return error.MalformatedRPCMessage;
     }
 
     const grid = self.ui.grid(grid_id) orelse return error.InvalidUIState;
@@ -364,6 +365,8 @@ fn grid_scroll(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
         const target, const src = .{ @as(usize, @intCast(i)) * grid.cols, @as(usize, @intCast(i + rows)) * grid.cols };
         @memcpy(cells[target + left .. target + right], cells[src + left .. src + right]);
     }
+
+    try main(self).cb_grid_scroll(grid_id, @intCast(top), @intCast(bot), left, right, rows);
 }
 
 fn grid_cursor_goto(self: *Self, base_decoder: *mpack.SkipDecoder) !void {

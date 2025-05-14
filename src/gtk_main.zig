@@ -476,6 +476,11 @@ pub fn cb_grid_clear(self: *Self, grid: u32) !void {
     std.debug.print("kireee: {} \n", .{grid});
 }
 
+pub fn cb_grid_scroll(self: *Self, grid: u32, top: u32, bot: u32, left: u32, right: u32, rows: i32) !void {
+    _ = self;
+    std.debug.print("scrollen {}: {}-{} X {}-{} delta {}\n", .{ grid, top, bot, left, right, rows });
+}
+
 pub fn cb_grid_line(self: *Self, grid: u32, row: u32, start_col: u32, end_col: u32) !void {
     _ = self;
     std.debug.print("boll: {} {}, {}-{}\n", .{ grid, row, start_col, end_col });
