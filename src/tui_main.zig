@@ -2,7 +2,8 @@ const std = @import("std");
 const vaxis = @import("vaxis");
 const xev = @import("xev");
 const RPCState = @import("RPCState.zig");
-const mpack = @import("./mpack.zig");
+const UIState = @import("UIState.zig");
+const mpack = @import("mpack.zig");
 const io = @import("io_native.zig");
 const ctlseqs = vaxis.ctlseqs;
 
@@ -233,23 +234,36 @@ pub fn attr_slice(self: *Self, id: u32) []const u8 {
     return ctlseqs.sgr_reset;
 }
 
-pub fn cb_grid_clear(self: *Self, grid: u32) !void {
+pub fn cb_grid_clear(self: *Self, grid_id: u32) !void {
     self.render.buf.items.len = 0;
-    if (grid != 1) return;
+    if (grid_id != 1) return;
     try self.render.put(ctlseqs.home ++ ctlseqs.erase_below_cursor);
     self.render.pos_r = 0;
     self.render.pos_c = 0;
 }
 
 const csr = "\x1b[{};{}r";
+// TODO: safe to just ENTER 69 on startup (restore on exit);
+const enter_lrmm = "\x1b[?69h";
+const exit_lrmm = "\x1b[?69l";
+const smglr = "\x1b[{};{}s";
 
-pub fn cb_grid_scroll(self: *Self, grid: u32, top: u32, bot: u32, left: u32, right: u32, rows: i32) !void {
-    std.debug.print("scrollen {}: {}-{} X {}-{} delta {}\n", .{ grid, top, bot, left, right, rows });
+fn grid(self: *Self) ?*UIState.Grid {
+    return self.rpc.ui.grid(1);
+}
+
+pub fn cb_grid_scroll(self: *Self, grid_id: u32, top: u32, bot: u32, left: u32, right: u32, rows: i32) !void {
+    std.debug.print("scrollen {}: {}-{} X {}-{} delta {}\n", .{ grid_id, top, bot, left, right, rows });
+    const g = self.grid() orelse return;
     const render = &self.render;
     const top_bot = true;
+    const left_right = left > 0 or right < g.cols;
 
     if (top_bot) {
         try render.print(csr, .{ top + 1, bot });
+    }
+    if (left_right) {
+        try render.print(enter_lrmm ++ smglr, .{ left + 1, right });
     }
     try render.cup(top, left);
     try render.put(ctlseqs.sgr_reset);
@@ -261,6 +275,9 @@ pub fn cb_grid_scroll(self: *Self, grid: u32, top: u32, bot: u32, left: u32, rig
     if (top_bot) {
         try render.put("\x1b[r");
     }
+    if (left_right) {
+        try render.put("\x1b[s" ++ exit_lrmm);
+    }
     render.pos_r = invalid_fixme;
     render.pos_c = invalid_fixme;
 }
@@ -268,8 +285,8 @@ pub fn cb_grid_scroll(self: *Self, grid: u32, top: u32, bot: u32, left: u32, rig
 const invalid_fixme = 0xFFFFFFFF;
 
 // note: RPC callbacks happen in the nvim read callback. heavy work need to be scheduled..
-pub fn cb_grid_line(self: *Self, grid: u32, row: u32, start_col: u32, end_col: u32) !void {
-    dbg("boll: {} {}, {}-{}\n", .{ grid, row, start_col, end_col });
+pub fn cb_grid_line(self: *Self, grid_id: u32, row: u32, start_col: u32, end_col: u32) !void {
+    dbg("boll: {} {}, {}-{}\n", .{ grid_id, row, start_col, end_col });
     const render = &self.render;
     const ui = &self.rpc.ui;
     const g = ui.grid(1) orelse return;
