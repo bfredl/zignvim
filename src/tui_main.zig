@@ -68,6 +68,8 @@ pub fn main() !void {
     const stream = xev.Stream.initFd(self.tty.fd);
     defer stream.deinit();
 
+    const winsize = try vaxis.Tty.getWinsize(self.tty.fd);
+
     defer vx.deinit(alloc, ttyw);
 
     self.decoder = mpack.SkipDecoder{ .data = self.buf_nvim[0..0] };
@@ -82,7 +84,7 @@ pub fn main() !void {
         nvim = std.mem.span(argv_rest[1]);
         argv_rest = argv_rest[2..];
     }
-    try self.attach(nvim, argv_rest);
+    try self.attach(nvim, argv_rest, winsize.cols, winsize.rows);
 
     try self.loop.run(.until_done);
 }
@@ -154,9 +156,7 @@ fn ttyReadCb(
     return .rearm;
 }
 
-fn attach(self: *Self, nvim_exe: ?[]const u8, args: []const ?[*:0]const u8) !void {
-    const width: u32, const height: u32 = .{ 80, 20 };
-
+fn attach(self: *Self, nvim_exe: ?[]const u8, args: []const ?[*:0]const u8, width: u32, height: u32) !void {
     var the_fd: ?i32 = null;
     if (false) {
         the_fd = try std.posix.dup(0);
