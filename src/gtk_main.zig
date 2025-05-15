@@ -767,7 +767,7 @@ fn attach(self: *Self, args: []const ?[*:0]const u8) !void {
         the_fd = try std.posix.dup(0);
     }
 
-    self.child = try io.spawn(self.gpa.allocator(), args, the_fd);
+    self.child = try io.spawn(self.gpa.allocator(), null, args, the_fd);
 
     var encoder = mpack.encoder(self.enc_buf.writer());
     try io.attach(&encoder, width, height, if (the_fd) |_| @as(i32, 3) else null, self.multigrid);

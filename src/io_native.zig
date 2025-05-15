@@ -7,9 +7,9 @@ const Child = std.process.Child;
 
 const os = std.os;
 
-pub fn spawn(allocator: mem.Allocator, args: []const ?[*:0]const u8, stdin_fd: ?i32) !std.process.Child {
+pub fn spawn(allocator: mem.Allocator, nvim_exe: ?[]const u8, args: []const ?[*:0]const u8, stdin_fd: ?i32) !std.process.Child {
     //const argv = &[_][]const u8{ "nvim", "--embed" };
-    const base_argv = &[_][]const u8{ "nvim", "--embed" };
+    const base_argv = &[_][]const u8{ nvim_exe orelse "nvim", "--embed" };
     var argv = std.ArrayList([]const u8).init(allocator);
     defer argv.deinit();
     try argv.appendSlice(base_argv);

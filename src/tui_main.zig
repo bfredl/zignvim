@@ -76,7 +76,13 @@ pub fn main() !void {
     var c: xev.Completion = undefined;
     stream.read(&self.loop, &c, .{ .slice = &read_buf }, Self, &self, ttyReadCb);
 
-    try self.attach(&.{});
+    var nvim: ?[]const u8 = null;
+    var argv_rest = std.os.argv[1..];
+    if (argv_rest.len >= 2 and std.mem.eql(u8, std.mem.span(argv_rest[0]), "--nvim")) {
+        nvim = std.mem.span(argv_rest[1]);
+        argv_rest = argv_rest[2..];
+    }
+    try self.attach(nvim, argv_rest);
 
     try self.loop.run(.until_done);
 }
@@ -148,7 +154,7 @@ fn ttyReadCb(
     return .rearm;
 }
 
-fn attach(self: *Self, args: []const ?[*:0]const u8) !void {
+fn attach(self: *Self, nvim_exe: ?[]const u8, args: []const ?[*:0]const u8) !void {
     const width: u32, const height: u32 = .{ 80, 20 };
 
     var the_fd: ?i32 = null;
@@ -156,7 +162,7 @@ fn attach(self: *Self, args: []const ?[*:0]const u8) !void {
         the_fd = try std.posix.dup(0);
     }
 
-    self.child = try io.spawn(self.allocator, args, the_fd);
+    self.child = try io.spawn(self.allocator, nvim_exe, args, the_fd);
 
     var encoder = mpack.encoder(self.enc_buf.writer(self.allocator));
     try io.attach(&encoder, width, height, if (the_fd) |_| @as(i32, 3) else null, false);
