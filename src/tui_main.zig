@@ -14,8 +14,12 @@ loop: xev.Loop,
 parser: vaxis.Parser,
 child: std.process.Child = undefined,
 tty: vaxis.Tty,
+winsize: vaxis.Winsize = undefined,
 
 enc_buf: std.ArrayListUnmanaged(u8) = .{},
+
+quitting: bool = false,
+signal_stopped: bool = false,
 
 // buf only for cell rendering. high prio messages might be sent directly
 // or use another buf
@@ -68,7 +72,8 @@ pub fn main() !void {
     const stream = xev.Stream.initFd(self.tty.fd);
     defer stream.deinit();
 
-    const winsize = try vaxis.Tty.getWinsize(self.tty.fd);
+    self.winsize = try vaxis.Tty.getWinsize(self.tty.fd);
+    try vaxis.Tty.notifyWinsize(.{ .callback = on_winch, .context = @ptrCast(&self) });
 
     defer vx.deinit(alloc, ttyw);
 
@@ -84,9 +89,21 @@ pub fn main() !void {
         nvim = std.mem.span(argv_rest[1]);
         argv_rest = argv_rest[2..];
     }
-    try self.attach(nvim, argv_rest, winsize.cols, winsize.rows);
+    try self.attach(nvim, argv_rest, self.winsize.cols, self.winsize.rows);
 
-    try self.loop.run(.until_done);
+    while (true) {
+        try self.loop.run(.once);
+
+        if (self.quitting) break;
+
+        if (self.signal_stopped) {
+            // XXX: this is a bit of a hack. preferably the event loop should natively
+            // handle signals as events
+            self.signal_stopped = false;
+            self.loop.flags.stopped = false;
+            try self.checkResize();
+        }
+    }
 }
 
 fn ttyReadCb(
@@ -189,6 +206,25 @@ fn enqueueInput(self: *Self, str: []const u8) void {
     io.unsafe_input(encoder, str) catch @panic("memory error");
 }
 
+fn on_winch(context: *anyopaque) void {
+    const self: *Self = @ptrCast(@alignCast(context));
+    self.signal_stopped = true;
+    // TODO: this libxev flag is really for "stopped forever". need
+    // a separate signal handling mechanism
+    self.loop.flags.stopped = true;
+}
+
+fn checkResize(self: *Self) !void {
+    const new_size = try vaxis.Tty.getWinsize(self.tty.fd);
+    if (new_size.rows != self.winsize.rows or new_size.cols != self.winsize.cols) {
+        self.winsize = new_size;
+
+        const encoder = mpack.encoder(self.enc_buf.writer(self.allocator));
+        io.try_resize(encoder, 1, self.winsize.cols, self.winsize.rows) catch @panic("memory error");
+        try self.flush_input();
+    }
+}
+
 fn nvimReadCb(
     self_: ?*Self,
     loop: *xev.Loop,
@@ -205,6 +241,7 @@ fn nvimReadCb(
     const n = r catch |err| switch (err) {
         error.EOF => {
             std.debug.print("nvim EOF!\n", .{});
+            self.quitting = true;
             self.loop.stop();
             return .disarm;
         },
