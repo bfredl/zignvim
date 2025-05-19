@@ -55,8 +55,6 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const alloc = gpa.allocator();
 
-    // try vx.enterAltScreen(ttyw);
-
     var vx = try vaxis.init(alloc, .{});
     var self: Self = .{
         .parser = .{ .grapheme_data = &vx.unicode.width_data.g_data },
@@ -75,6 +73,7 @@ pub fn main() !void {
     self.winsize = try vaxis.Tty.getWinsize(self.tty.fd);
     try vaxis.Tty.notifyWinsize(.{ .callback = on_winch, .context = @ptrCast(&self) });
 
+    try vx.enterAltScreen(ttyw);
     defer vx.deinit(alloc, ttyw);
 
     self.decoder = mpack.SkipDecoder{ .data = self.buf_nvim[0..0] };
@@ -148,17 +147,7 @@ fn ttyReadCb(
 
         switch (event) {
             .key_press => |k| {
-                if (k.text) |text| {
-                    self.enqueueInput(text);
-                } else if (k.codepoint < 32) {
-                    self.enqueueInput(&.{@intCast(k.codepoint)});
-                } else if (k.codepoint == 127) {
-                    self.enqueueInput("<bs>");
-                } else if (k.mods.ctrl == true and k.mods.alt == false and k.codepoint >= 'a' and k.codepoint <= 'z') {
-                    self.enqueueInput(&.{@intCast(k.codepoint - 'a' + 1)});
-                } else {
-                    std.debug.print("keypress {}\r\n", .{k});
-                }
+                self.handleKeyPress(k);
                 self.flush_input() catch @panic("RETURN TO SENDER");
             },
             else => std.debug.print("event {}\r\n", .{event}),
@@ -171,6 +160,34 @@ fn ttyReadCb(
     }
 
     return .rearm;
+}
+
+fn handleKeyPress(self: *Self, k: vaxis.Key) void {
+    const Key = vaxis.Key;
+    if (k.text) |text| {
+        self.enqueueInput(text);
+    } else if (k.codepoint < 32) {
+        self.enqueueInput(&.{@intCast(k.codepoint)});
+    } else if (k.codepoint >= 127 and k.mods.ctrl == false and k.mods.alt == false and k.mods.shift == false) {
+        const string = switch (k.codepoint) {
+            127 => "bs",
+            Key.page_up => "PageUp",
+            Key.page_down => "PageDown",
+            Key.home => "Home",
+            Key.end => "End",
+            Key.f3 => "F3",
+            else => null,
+        };
+        if (string) |s| {
+            var buf: [128]u8 = undefined;
+            const key = std.fmt.bufPrint(&buf, "<{s}>", .{s}) catch unreachable;
+            self.enqueueInput(key);
+        } else std.debug.print("keypress {}\r\n", .{k});
+    } else if (k.mods.ctrl == true and k.mods.alt == false and k.codepoint >= 'a' and k.codepoint <= 'z') {
+        self.enqueueInput(&.{@intCast(k.codepoint - 'a' + 1)});
+    } else {
+        std.debug.print("keypress {}\r\n", .{k});
+    }
 }
 
 fn attach(self: *Self, nvim_exe: ?[]const u8, args: []const ?[*:0]const u8, width: u32, height: u32) !void {
