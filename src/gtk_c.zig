@@ -1,4 +1,4 @@
-pub usingnamespace @cImport({
+pub const c = @cImport({
     @cInclude("gtk/gtk.h");
     @cInclude("cairo/cairo.h");
     // TODO: make me build-time optional

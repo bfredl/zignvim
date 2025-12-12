@@ -1,5 +1,5 @@
 const std = @import("std");
-const c = @import("gtk_c.zig");
+const c = @import("gtk_c.zig").c;
 const g = @import("gtk_lib.zig");
 const io = @import("io_native.zig");
 const RPCState = @import("RPCState.zig");
@@ -11,12 +11,12 @@ const Self = @This();
 
 const use_ibus = true;
 
-gpa: std.heap.GeneralPurposeAllocator(.{}),
+gpa: std.mem.Allocator,
 app: *c.GtkApplication,
 
 child: std.process.Child = undefined,
-enc_buf: ArrayList(u8) = undefined,
-key_buf: ArrayList(u8) = undefined,
+enc_buf: ArrayList(u8) = .empty,
+key_buf: ArrayList(u8) = .empty,
 
 buf: [1024]u8 = undefined,
 decoder: mpack.SkipDecoder = undefined,
@@ -55,7 +55,7 @@ fn get_self(data: c.gpointer) *Self {
     return @ptrCast(@alignCast(data));
 }
 
-fn key_pressed(_: *c.GtkEventControllerKey, keyval: c.guint, keycode: c.guint, mod: c.GdkModifierType, data: c.gpointer) callconv(.C) bool {
+fn key_pressed(_: *c.GtkEventControllerKey, keyval: c.guint, keycode: c.guint, mod: c.GdkModifierType, data: c.gpointer) callconv(.c) bool {
     const self = get_self(data);
     if (use_ibus) {
         // TODO: cargo-cult comment, these might note be relavant for raw IBUS
@@ -71,7 +71,7 @@ fn key_pressed(_: *c.GtkEventControllerKey, keyval: c.guint, keycode: c.guint, m
     return false;
 }
 
-fn key_released(_: *c.GtkEventControllerKey, keyval: c.guint, keycode: c.guint, mod: c.GdkModifierType, data: c.gpointer) callconv(.C) bool {
+fn key_released(_: *c.GtkEventControllerKey, keyval: c.guint, keycode: c.guint, mod: c.GdkModifierType, data: c.gpointer) callconv(.c) bool {
     const self = get_self(data);
     if (use_ibus) {
         return ibus_filter_keypress(self, keyval, keycode, mod, true) catch @panic("kalm. PANIK.");
@@ -109,28 +109,28 @@ fn onKeyPress(self: *Self, keyval: c.guint, keycode: c.guint, mod: c.guint) !voi
     // TODO: be insane enough and just reuse enc_buf :]
     defer self.key_buf.items.len = 0;
     if ((mod & (c.GDK_CONTROL_MASK | c.GDK_ALT_MASK)) != 0 or special != null) {
-        try self.key_buf.appendSlice("<");
+        try self.key_buf.appendSlice(self.gpa, "<");
         did = true;
     }
     if ((mod & c.GDK_CONTROL_MASK) != 0) {
-        try self.key_buf.appendSlice("c-");
+        try self.key_buf.appendSlice(self.gpa, "c-");
     }
     if ((mod & c.GDK_ALT_MASK) != 0) {
-        try self.key_buf.appendSlice("a-");
+        try self.key_buf.appendSlice(self.gpa, "a-");
     }
     if ((special != null) and (mod & c.GDK_SHIFT_MASK) != 0) {
-        try self.key_buf.appendSlice("s-");
+        try self.key_buf.appendSlice(self.gpa, "s-");
     }
-    try self.key_buf.appendSlice(keystr);
+    try self.key_buf.appendSlice(self.gpa, keystr);
 
     if (did) {
-        try self.key_buf.appendSlice(">");
+        try self.key_buf.appendSlice(self.gpa, ">");
     }
 
     try self.doCommit(self.key_buf.items);
 }
 
-fn mouse_pressed(gesture: *c.GtkGesture, n_press: c.guint, x: c.gdouble, y: c.gdouble, data: c.gpointer) callconv(.C) bool {
+fn mouse_pressed(gesture: *c.GtkGesture, n_press: c.guint, x: c.gdouble, y: c.gdouble, data: c.gpointer) callconv(.c) bool {
     const self = get_self(data);
     self.onMousePress(gesture, n_press, x, y) catch @panic("We live inside of a dream!");
     return false;
@@ -183,7 +183,7 @@ fn onMousePress(self: *Self, gesture: *c.GtkGesture, n_press: c.guint, x: c.gdou
 
 fn doCommit(self: *Self, str: []const u8) !void {
     // dbg("aha: {s}\n", .{str});
-    const encoder = mpack.encoder(self.enc_buf.writer());
+    const encoder = mpack.encoder(self.enc_buf.writer(self.gpa));
     try io.unsafe_input(encoder, str);
     try self.flush_input();
 }
@@ -196,10 +196,10 @@ fn flush_input(self: *Self) !void {
         },
         else => |e| return e,
     };
-    try self.enc_buf.resize(0);
+    try self.enc_buf.resize(self.gpa, 0);
 }
 
-fn commit(_: *c.GtkIMContext, str: [*:0]const u8, data: c.gpointer) callconv(.C) void {
+fn commit(_: *c.GtkIMContext, str: [*:0]const u8, data: c.gpointer) callconv(.c) void {
     const self = get_self(data);
 
     self.doCommit(std.mem.span(str)) catch @panic("It was a dream!");
@@ -207,7 +207,7 @@ fn commit(_: *c.GtkIMContext, str: [*:0]const u8, data: c.gpointer) callconv(.C)
 
 // private IBus implementation {{{
 
-fn ibus_connected(bus: *c.IBusBus, data: c.gpointer) callconv(.C) void {
+fn ibus_connected(bus: *c.IBusBus, data: c.gpointer) callconv(.c) void {
     // const self = get_self(data);
     // g_assert (self.ibus_context == null);
     // g_return_if_fail (ibusimcontext->cancellable == NULL);
@@ -217,7 +217,7 @@ fn ibus_connected(bus: *c.IBusBus, data: c.gpointer) callconv(.C) void {
         &ibus_input_context_created, data);
 }
 
-fn ibus_input_context_created(_: [*c]c.GObject, res: ?*c.GAsyncResult, data: c.gpointer) callconv(.C) void {
+fn ibus_input_context_created(_: [*c]c.GObject, res: ?*c.GAsyncResult, data: c.gpointer) callconv(.c) void {
     const self = get_self(data);
 
     var err: ?*c.GError = null;
@@ -241,12 +241,12 @@ fn ibus_input_context_created(_: [*c]c.GObject, res: ?*c.GAsyncResult, data: c.g
     }
 }
 
-fn ibus_context_commit_text(_: *c.IBusInputContext, text: *c.IBusText, data: c.gpointer) callconv(.C) void {
+fn ibus_context_commit_text(_: *c.IBusInputContext, text: *c.IBusText, data: c.gpointer) callconv(.c) void {
     const self = get_self(data);
     self.doCommit(std.mem.span(text.text)) catch @panic("It was a dream!");
 }
 
-fn ibus_context_forward_key_event(_: *c.IBusInputContext, keyval: c.guint, keycode: c.guint, state: c.guint, data: c.gpointer) callconv(.C) void {
+fn ibus_context_forward_key_event(_: *c.IBusInputContext, keyval: c.guint, keycode: c.guint, state: c.guint, data: c.gpointer) callconv(.c) void {
     const self = get_self(data);
     // dbg("very tangent: {} {} ({})\n", .{ keyval, keycode, state });
     if ((state & c.IBUS_RELEASE_MASK) == 0) {
@@ -266,7 +266,7 @@ fn ibus_filter_keypress(self: *Self, keyval: c.guint, keycode: c.guint, gdk_stat
 
     const state = gdk_state | if (release) @as(c.guint, @intCast(c.IBUS_RELEASE_MASK)) else 0;
 
-    const data = try self.gpa.allocator().create(ProcessedKeyState);
+    const data = try self.gpa.create(ProcessedKeyState);
     data.* = .{ .self = self, .keyval = keyval, .keycode = keycode, .state = state };
 
     c.ibus_input_context_process_key_event_async(context, keyval, keycode - 8, state, -1, null, &ibus_process_key_event_done, data);
@@ -274,7 +274,7 @@ fn ibus_filter_keypress(self: *Self, keyval: c.guint, keycode: c.guint, gdk_stat
     return true;
 }
 
-fn ibus_process_key_event_done(object: [*c]c.GObject, res: ?*c.GAsyncResult, user_data: c.gpointer) callconv(.C) void {
+fn ibus_process_key_event_done(object: [*c]c.GObject, res: ?*c.GAsyncResult, user_data: c.gpointer) callconv(.c) void {
     const context: *c.IBusInputContext = @ptrCast(@alignCast(object));
     const data: *ProcessedKeyState = @ptrCast(@alignCast(user_data));
     var err: ?*c.GError = null;
@@ -292,12 +292,12 @@ fn ibus_process_key_event_done(object: [*c]c.GObject, res: ?*c.GAsyncResult, use
             data.self.onKeyPress(data.keyval, data.keycode, data.state) catch @panic("I cannot believe you've done this!");
         }
     }
-    data.self.gpa.allocator().destroy(data);
+    data.self.gpa.destroy(data);
 }
 
 // }}}
 
-fn focus_enter(_: *c.GtkEventControllerFocus, data: c.gpointer) callconv(.C) void {
+fn focus_enter(_: *c.GtkEventControllerFocus, data: c.gpointer) callconv(.c) void {
     // c.g_print("änter\n");
     // const im_context: *c.GtkIMContext = @ptrCast(@alignCast(data));
     const self = get_self(data);
@@ -311,7 +311,7 @@ fn focus_enter(_: *c.GtkEventControllerFocus, data: c.gpointer) callconv(.C) voi
     }
 }
 
-fn focus_leave(_: *c.GtkEventControllerFocus, data: c.gpointer) callconv(.C) void {
+fn focus_leave(_: *c.GtkEventControllerFocus, data: c.gpointer) callconv(.c) void {
     // c.g_print("you must leave now\n");
     // const im_context: *c.GtkIMContext = @ptrCast(@alignCast(data));
     const self = get_self(data);
@@ -325,7 +325,7 @@ fn focus_leave(_: *c.GtkEventControllerFocus, data: c.gpointer) callconv(.C) voi
     }
 }
 
-fn on_stdout(_: ?*c.GIOChannel, cond: c.GIOCondition, data: c.gpointer) callconv(.C) c.gboolean {
+fn on_stdout(_: ?*c.GIOChannel, cond: c.GIOCondition, data: c.gpointer) callconv(.c) c.gboolean {
     // dbg("DATTA\n", .{});
 
     var self = get_self(data);
@@ -349,7 +349,7 @@ fn on_stdout(_: ?*c.GIOChannel, cond: c.GIOCondition, data: c.gpointer) callconv
     return 1;
 }
 
-fn area_resize(da: ?*c.GtkDrawingArea, width: c.gint, height: c.gint, data: c.gpointer) callconv(.C) bool {
+fn area_resize(da: ?*c.GtkDrawingArea, width: c.gint, height: c.gint, data: c.gpointer) callconv(.c) bool {
     _ = da;
     const self = get_self(data);
     self.onResize(@intCast(width), @intCast(height)) catch @panic("nööööööff");
@@ -366,7 +366,7 @@ fn onResize(self: *Self, width: u32, height: u32) !void {
     const new_width = @divTrunc(width, self.font.width);
     const new_height = @divTrunc(height, self.font.height);
     if (new_width != self.requested_width or new_height != self.requested_height) {
-        var encoder = mpack.encoder(self.enc_buf.writer());
+        var encoder = mpack.encoder(self.enc_buf.writer(self.gpa));
         try io.try_resize(&encoder, 1, new_width, new_height);
         try self.flush_input();
         self.requested_width = new_width;
@@ -377,7 +377,7 @@ fn onResize(self: *Self, width: u32, height: u32) !void {
     }
 }
 
-fn redraw_area(_: ?*c.GtkDrawingArea, cr_in: ?*c.cairo_t, width: c_int, height: c_int, data: c.gpointer) callconv(.C) void {
+fn redraw_area(_: ?*c.GtkDrawingArea, cr_in: ?*c.cairo_t, width: c_int, height: c_int, data: c.gpointer) callconv(.c) void {
     const self = get_self(data);
     const cs = self.cs orelse return;
     const cr = cr_in orelse return;
@@ -541,8 +541,8 @@ fn draw_run(self: *Self, cr: *c.cairo_t, x: usize, y: usize, bg_width: usize, ce
     c.cairo_fill(cr);
 
     // TODO: shared buffer!
-    var text = std.ArrayList(u8).init(self.gpa.allocator());
-    defer text.deinit();
+    var text: std.ArrayList(u8) = .empty;
+    defer text.deinit(self.gpa);
 
     var text_end = bg_width;
     while (text_end > 0) : (text_end -= 1) {
@@ -559,8 +559,8 @@ fn draw_run(self: *Self, cr: *c.cairo_t, x: usize, y: usize, bg_width: usize, ce
 
         for (text_cells[0..text_width]) |cell| {
             const txt = self.rpc.ui.text(&cell);
-            if (debug) dbg("txt {s} {d} of len {} ({s})\n", .{ txt, txt, txt.len, @tagName(cell.text) });
-            try text.appendSlice(txt);
+            if (debug) dbg("txt {s} of len {} ({s})\n", .{ txt, txt.len, @tagName(cell.text) });
+            try text.appendSlice(self.gpa, txt);
         }
         // try text.append(0); // hahaha
         if (debug) dbg("for text \"{s}\" in ({},{}):\n", .{ text.items, first_text, first_text + text_width });
@@ -750,13 +750,8 @@ fn init_font_desc(pctx: *c.PangoContext, font_desc: *c.PangoFontDescription) Fon
 
 // TODO: nonsens
 fn init(self: *Self) !void {
-    const allocator = self.gpa.allocator();
-
-    self.enc_buf = ArrayList(u8).init(allocator);
-    self.key_buf = ArrayList(u8).init(allocator);
-
     self.decoder = mpack.SkipDecoder{ .data = self.buf[0..0] };
-    self.rpc = try RPCState.init(allocator);
+    self.rpc = try RPCState.init(self.gpa);
 }
 
 fn attach(self: *Self, args: []const ?[*:0]const u8) !void {
@@ -767,9 +762,9 @@ fn attach(self: *Self, args: []const ?[*:0]const u8) !void {
         the_fd = try std.posix.dup(0);
     }
 
-    self.child = try io.spawn(self.gpa.allocator(), null, args, the_fd);
+    self.child = try io.spawn(self.gpa, null, args, the_fd);
 
-    var encoder = mpack.encoder(self.enc_buf.writer());
+    var encoder = mpack.encoder(self.enc_buf.writer(self.gpa));
     try io.attach(&encoder, width, height, if (the_fd) |_| @as(i32, 3) else null, self.multigrid);
     try self.flush_input();
 
@@ -784,7 +779,7 @@ fn command_line(
     app: *c.GtkApplication,
     cmdline: *c.GApplicationCommandLine,
     data: c.gpointer,
-) callconv(.C) void {
+) callconv(.c) void {
     var argc: c.gint = 0;
     const argv = c.g_application_command_line_get_arguments(cmdline, &argc);
     const self = get_self(data);
@@ -864,7 +859,10 @@ pub fn main() u8 {
     const app: *c.GtkApplication = c.gtk_application_new("io.github.bfredl.zignvim", c.G_APPLICATION_HANDLES_COMMAND_LINE);
     defer c.g_object_unref(@ptrCast(app));
 
-    var self = Self{ .gpa = std.heap.GeneralPurposeAllocator(.{}){}, .app = app };
+    var allocator = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = allocator.deinit();
+
+    var self = Self{ .gpa = allocator.allocator(), .app = app };
 
     _ = g.g_signal_connect(app, "command-line", g.G_CALLBACK(&command_line), &self);
     // not to be used with command-line??? GIO docs are so confusing

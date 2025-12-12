@@ -7,17 +7,17 @@ const Child = std.process.Child;
 
 const os = std.os;
 
-pub fn spawn(allocator: mem.Allocator, nvim_exe: ?[]const u8, args: []const ?[*:0]const u8, stdin_fd: ?i32) !std.process.Child {
+pub fn spawn(gpa: mem.Allocator, nvim_exe: ?[]const u8, args: []const ?[*:0]const u8, stdin_fd: ?i32) !std.process.Child {
     //const argv = &[_][]const u8{ "nvim", "--embed" };
     const base_argv = &[_][]const u8{ nvim_exe orelse "nvim", "--embed" };
-    var argv = std.ArrayList([]const u8).init(allocator);
-    defer argv.deinit();
-    try argv.appendSlice(base_argv);
+    var argv: std.ArrayList([]const u8) = .empty;
+    defer argv.deinit(gpa);
+    try argv.appendSlice(gpa, base_argv);
     for (args) |arg| {
-        try argv.append(mem.span(arg.?));
+        try argv.append(gpa, mem.span(arg.?));
     }
 
-    var child = std.process.Child.init(argv.items, allocator);
+    var child = std.process.Child.init(argv.items, gpa);
 
     child.stdout_behavior = Child.StdIo.Pipe;
     child.stdin_behavior = Child.StdIo.Pipe;

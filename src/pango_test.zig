@@ -1,4 +1,4 @@
-const c = @import("gtk_c.zig");
+const c = @import("gtk_c.zig").c;
 const g = @import("gtk_lib.zig");
 const std = @import("std");
 const dbg = std.debug.print;
@@ -7,7 +7,7 @@ fn command_line(
     app: *c.GtkApplication,
     cmdline: *c.GApplicationCommandLine,
     data: c.gpointer,
-) callconv(.C) void {
+) callconv(.c) void {
     var argc: c.gint = 0;
     const argv = c.g_application_command_line_get_arguments(cmdline, &argc);
 

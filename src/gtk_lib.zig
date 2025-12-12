@@ -1,5 +1,5 @@
 const std = @import("std");
-const c = @import("gtk_c.zig");
+const c = @import("gtk_c.zig").c;
 
 // translate-C of GTK_WINDOW etc macros fails, let's doit ourselves
 pub fn g_cast(comptime T: type, gtk_type: c.GType, value: anytype) *T {
