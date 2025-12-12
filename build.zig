@@ -88,5 +88,17 @@ pub fn build(b: *std.Build) !void {
             pango.addArgs(args);
         }
         pango_test.dependOn(&pango.step);
+
+        const Translator = @import("translate_c").Translator;
+        const translate_c = b.dependency("translate_c", .{});
+
+        const trans: Translator = .init(translate_c, .{
+            .c_source_file = b.path("src/gtk_include.h"),
+            .target = t,
+            .optimize = opt,
+        });
+        // trans.linkSystemLibrary("gtk4", .{});  // men jag vill veta hur
+        const gtk_trans = b.step("gtk_trans", "translate gtk");
+        gtk_trans.dependOn(&b.addInstallFileWithDir(trans.output_file, .prefix, "gtk_trans.zig").step);
     }
 }

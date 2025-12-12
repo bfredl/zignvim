@@ -16,6 +16,10 @@
             .hash = "libxev-0.0.0-86vtc-zkEgB7uv1i0Sa6ytJETZQi_lHJrImu9mLb9moi",
             .lazy = true,
         },
+        .translate_c = .{
+            .url = "git+https://codeberg.org/ziglang/translate-c#5096308fc7dd56f65dfe265cd8b1269e62f89096",
+            .hash = "translate_c-0.0.0-Q_BUWmDcBgBg6QbVOQ6vHmt8kmtsL6FHlLr9QzCmu0Z1",
+        },
     },
     .paths = .{
         "build.zig",
