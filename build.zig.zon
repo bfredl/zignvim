@@ -11,15 +11,15 @@
             .hash = "vaxis-0.5.1-BWNV_GMyCQBtxcEkSAEb_EXbm8A24FWJFC7fXiWUVx9Y",
             .lazy = true,
         },
-        .xev = .{
-            .url = "git+https://github.com/mitchellh/libxev#94ed6af7b2aaaeab987fbf87fcee410063df715b",
-            .hash = "libxev-0.0.0-86vtc-zkEgB7uv1i0Sa6ytJETZQi_lHJrImu9mLb9moi",
-            .lazy = true,
-        },
         .translate_c = .{
-            .url = "git+https://codeberg.org/ziglang/translate-c#5096308fc7dd56f65dfe265cd8b1269e62f89096",
-            .hash = "translate_c-0.0.0-Q_BUWmDcBgBg6QbVOQ6vHmt8kmtsL6FHlLr9QzCmu0Z1",
+            .url = "git+https://codeberg.org/ziglang/translate-c#5ac39f77661a216b75b195fe74ce7d0a04b33b7d",
+            .hash = "translate_c-0.0.0-Q_BUWiv0BgBv8CnrzepLsOm4a0h_Wc1VMfleHl8TfUJO",
         },
+        //.libxev = .{
+        //    .url = "git+https://github.com/mitchellh/libxev#d398cba9bf711fa4dd21c48bf73d25e4d8986408",
+        //    .hash = "libxev-0.0.0-86vtc689EwAjQWysidPm9NKkAwwUNByiE3kZTg_xu0Hp",
+        //    .lazy = true,
+        //},
     },
     .paths = .{
         "build.zig",

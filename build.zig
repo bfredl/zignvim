@@ -27,7 +27,7 @@ pub fn build(b: *std.Build) !void {
 
     if (use_vaxis) {
         const vaxis = b.lazyDependency("vaxis", .{ .optimize = opt, .target = t }) orelse return;
-        const xev = b.lazyDependency("xev", .{ .optimize = opt, .target = t }) orelse return;
+        const xev = b.lazyDependency("libxev", .{ .optimize = opt, .target = t }) orelse return;
         const tui_step = b.step("tui", "terminal representation");
         const exe_tui = b.addExecutable(.{
             .name = "zignvim_tui",
@@ -97,7 +97,9 @@ pub fn build(b: *std.Build) !void {
             .target = t,
             .optimize = opt,
         });
-        // trans.linkSystemLibrary("gtk4", .{});  // men jag vill veta hur
+        trans.linkSystemLibrary("gtk4", .{});
+        const clang_intrinsic_include_dir = b.graph.zig_lib_directory.join(b.graph.arena, &.{"include"}) catch @panic("OOM");
+        trans.addAfterIncludePath(.{ .cwd_relative = clang_intrinsic_include_dir });
         const gtk_trans = b.step("gtk_trans", "translate gtk");
         gtk_trans.dependOn(&b.addInstallFileWithDir(trans.output_file, .prefix, "gtk_trans.zig").step);
     }
