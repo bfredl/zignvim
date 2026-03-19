@@ -27,7 +27,6 @@ pub fn build(b: *std.Build) !void {
 
     if (use_vaxis) {
         const vaxis = b.lazyDependency("vaxis", .{ .optimize = opt, .target = t }) orelse return;
-        const xev = b.lazyDependency("libxev", .{ .optimize = opt, .target = t }) orelse return;
         const tui_step = b.step("tui", "terminal representation");
         const exe_tui = b.addExecutable(.{
             .name = "zignvim_tui",
@@ -38,7 +37,6 @@ pub fn build(b: *std.Build) !void {
             }),
         });
         exe_tui.root_module.addImport("vaxis", vaxis.module("vaxis"));
-        exe_tui.root_module.addImport("xev", xev.module("xev"));
         exe_tui.use_llvm = llvm;
         b.installArtifact(exe_tui);
         const tui_run_cmd = b.addRunArtifact(exe_tui);
