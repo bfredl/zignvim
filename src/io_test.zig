@@ -27,17 +27,18 @@ pub fn cb_flush(self: *Self) !void {
     self.rpc.ui.dump_grid(1);
 }
 
-pub fn main() !void {
-    var allocator = std.heap.GeneralPurposeAllocator(.{}){};
-    const gpa = allocator.allocator();
-    var child = try io_native.spawn(gpa, null, &[_]?[*:0]const u8{}, null);
+pub fn main(init: std.process.Init) !void {
+    const gpa = init.gpa;
+    var child = try io_native.spawn(gpa, init.io, null, &[_]?[*:0]const u8{}, null);
 
-    const ByteArray = ArrayList(u8);
-    var x: ByteArray = .empty;
+    var aw: std.Io.Writer.Allocating = .init(gpa);
+    const encoder: mpack.Encoder = .init(&aw.writer);
+    try io_native.attach(encoder, 80, 25, null, false);
+
+    var x = aw.toArrayList();
     defer x.deinit(gpa);
-    var encoder = mpack.encoder(x.writer(gpa));
-    try io_native.attach(&encoder, 80, 25, null, false);
-    try child.stdin.?.writeAll(x.items);
+
+    try child.stdin.?.writeStreamingAll(init.io, x.items);
 
     try dummy_loop(&child.stdout.?, gpa);
 }
@@ -53,7 +54,7 @@ fn dummy_loop(stdout: anytype, allocator: std.mem.Allocator) !void {
             // TODO: avoid move if remaining space is plenty (like > 900)
             std.mem.copyForwards(u8, &buf, decoder.data);
         }
-        const lenny = try stdout.read(buf[oldlen..]);
+        const lenny = try stdout.readStreaming(buf[oldlen..]);
         decoder.data = buf[0 .. oldlen + lenny];
         try self.rpc.process(&decoder);
     }

@@ -7,8 +7,8 @@
 
     .dependencies = .{
         .vaxis = .{
-            .url = "git+https://github.com/rockorager/libvaxis#5915f33c1a7a184d3fb2aa39f087c1e6864a4308",
-            .hash = "vaxis-0.5.1-BWNV_GMyCQBtxcEkSAEb_EXbm8A24FWJFC7fXiWUVx9Y",
+            .url = "git+https://github.com/rockorager/libvaxis#41fff922316dcb8776332ec460e73eaf397d5033",
+            .hash = "vaxis-0.5.1-BWNV_JJOCQAtdJyLvrYCKbKIhX9q3liQkKMAzujWS4HJ",
             .lazy = true,
         },
         .translate_c = .{

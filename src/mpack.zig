@@ -1,91 +1,89 @@
 const std = @import("std");
 const dbg = std.debug.print;
 
-pub fn Encoder(comptime WriterType: type) type {
-    return struct {
-        writer: WriterType,
+pub const Encoder = struct {
+    writer: *std.Io.Writer,
 
-        const Self = @This();
-        pub const Error = WriterType.Error;
+    pub fn init(writer: *std.Io.Writer) Self {
+        return .{ .writer = writer };
+    }
 
-        fn put(self: Self, comptime T: type, val: T) Error!void {
-            if (T == u8) {
-                try self.writer.writeByte(val);
-            } else if (T == u16) {
-                try self.put(u8, @intCast((val >> 8) & 0xFF));
-                try self.put(u8, @intCast(val & 0xFF));
-            } else if (T == u32) {
-                try self.put(u8, @intCast((val >> 24) & 0xFF));
-                try self.put(u8, @intCast((val >> 16) & 0xFF));
-                try self.put(u8, @intCast((val >> 8) & 0xFF));
-                try self.put(u8, @intCast(val & 0xFF));
-            }
+    const Self = @This();
+    pub const Error = std.Io.Writer.Error;
+
+    fn put(self: Self, comptime T: type, val: T) Error!void {
+        if (T == u8) {
+            try self.writer.writeByte(val);
+        } else if (T == u16) {
+            try self.put(u8, @intCast((val >> 8) & 0xFF));
+            try self.put(u8, @intCast(val & 0xFF));
+        } else if (T == u32) {
+            try self.put(u8, @intCast((val >> 24) & 0xFF));
+            try self.put(u8, @intCast((val >> 16) & 0xFF));
+            try self.put(u8, @intCast((val >> 8) & 0xFF));
+            try self.put(u8, @intCast(val & 0xFF));
         }
+    }
 
-        pub fn putArrayHead(self: Self, count: u32) Error!void {
-            if (count <= 15) {
-                try self.put(u8, 0x90 | @as(u8, @intCast(count)));
-            } else if (count <= std.math.maxInt(u16)) {
-                try self.put(u8, 0xdc);
-                try self.put(u16, @intCast(count));
+    pub fn putArrayHead(self: Self, count: u32) Error!void {
+        if (count <= 15) {
+            try self.put(u8, 0x90 | @as(u8, @intCast(count)));
+        } else if (count <= std.math.maxInt(u16)) {
+            try self.put(u8, 0xdc);
+            try self.put(u16, @intCast(count));
+        } else {
+            try self.put(u8, 0xdd);
+            try self.put(u32, @intCast(count));
+        }
+    }
+
+    pub fn putMapHead(self: Self, count: u32) Error!void {
+        if (count <= 15) {
+            try self.put(u8, 0x80 | @as(u8, @intCast(count)));
+        } else if (count <= std.math.maxInt(u16)) {
+            try self.put(u8, 0xde);
+            try self.put(u16, @intCast(count));
+        } else {
+            try self.put(u8, 0xdf);
+            try self.put(u32, @intCast(count));
+        }
+    }
+
+    pub fn putStr(self: Self, val: []const u8) Error!void {
+        const len = val.len;
+        if (len <= 31) {
+            try self.put(u8, 0xa0 + @as(u8, @intCast(len)));
+        } else if (len <= 0xFF) {
+            try self.put(u8, 0xd9);
+            try self.put(u8, @intCast(len));
+        }
+        try self.writer.writeAll(val);
+    }
+
+    pub fn putInt(self: Self, val: anytype) Error!void {
+        const unsigned = comptime switch (@typeInfo(@TypeOf(val))) {
+            .int => |int| int.signedness == .unsigned,
+            .comptime_int => false, // or val >= 0 but handled below
+            else => unreachable,
+        };
+        if (unsigned or val >= 0) {
+            if (val <= 0x7f) {
+                try self.put(u8, @intCast(val));
+            } else if (val <= std.math.maxInt(u8)) {
+                try self.put(u8, 0xcc);
+                try self.put(u8, @intCast(val));
             } else {
-                try self.put(u8, 0xdd);
-                try self.put(u32, @intCast(count));
+                @panic("bbb");
             }
+        } else {
+            @panic("aaa");
         }
+    }
 
-        pub fn putMapHead(self: Self, count: u32) Error!void {
-            if (count <= 15) {
-                try self.put(u8, 0x80 | @as(u8, @intCast(count)));
-            } else if (count <= std.math.maxInt(u16)) {
-                try self.put(u8, 0xde);
-                try self.put(u16, @intCast(count));
-            } else {
-                try self.put(u8, 0xdf);
-                try self.put(u32, @intCast(count));
-            }
-        }
-
-        pub fn putStr(self: Self, val: []const u8) Error!void {
-            const len = val.len;
-            if (len <= 31) {
-                try self.put(u8, 0xa0 + @as(u8, @intCast(len)));
-            } else if (len <= 0xFF) {
-                try self.put(u8, 0xd9);
-                try self.put(u8, @intCast(len));
-            }
-            try self.writer.writeAll(val);
-        }
-
-        pub fn putInt(self: Self, val: anytype) Error!void {
-            const unsigned = comptime switch (@typeInfo(@TypeOf(val))) {
-                .int => |int| int.signedness == .unsigned,
-                .comptime_int => false, // or val >= 0 but handled below
-                else => unreachable,
-            };
-            if (unsigned or val >= 0) {
-                if (val <= 0x7f) {
-                    try self.put(u8, @intCast(val));
-                } else if (val <= std.math.maxInt(u8)) {
-                    try self.put(u8, 0xcc);
-                    try self.put(u8, @intCast(val));
-                } else {
-                    @panic("bbb");
-                }
-            } else {
-                @panic("aaa");
-            }
-        }
-
-        pub fn putBool(self: Self, b: bool) Error!void {
-            try self.put(u8, @as(u8, if (b) 0xc3 else 0xc2));
-        }
-    };
-}
-
-pub fn encoder(writer: anytype) Encoder(@TypeOf(writer)) {
-    return .{ .writer = writer };
-}
+    pub fn putBool(self: Self, b: bool) Error!void {
+        try self.put(u8, @as(u8, if (b) 0xc3 else 0xc2));
+    }
+};
 
 pub const ExtHead = struct { kind: i8, size: u32 };
 pub const SmallExt = struct { kind: i8, data: []u8 };
@@ -363,13 +361,14 @@ const ArrayList = std.ArrayList;
 
 test {
     const testing = std.testing;
-    const allocator = testing.allocator;
-    var x = ArrayList(u8).init(allocator);
-    defer x.deinit();
-    var enc = encoder(x.writer());
+    const gpa = testing.allocator;
+    var aw: std.Io.writer.Allocating = .init(gpa);
+    var enc: Encoder = .init(&aw.writer);
     try enc.startArray(4);
     try enc.putInt(4);
     try enc.putInt(200);
+    var x = aw.toArrayList();
+    defer x.deinit();
 
     try testing.expectEqualSlices(u8, &[_]u8{ 0x94, 0x04, 0xcc, 0xc8 }, x.items);
 

@@ -4,11 +4,11 @@ const Self = @This();
 const dbg = std.debug.print;
 
 allocator: mem.Allocator,
-attr_arena: std.ArrayListUnmanaged(u8) = .{},
-glyph_arena: std.ArrayListUnmanaged(u8) = .{},
-glyph_cache: std.HashMapUnmanaged(u32, void, std.hash_map.StringIndexContext, std.hash_map.default_max_load_percentage) = .{},
-attrs: std.ArrayListUnmanaged(Attr) = .{},
-mode_info: std.ArrayListUnmanaged(ModeInfo) = .{},
+attr_arena: std.ArrayListUnmanaged(u8) = .empty,
+glyph_arena: std.ArrayListUnmanaged(u8) = .empty,
+glyph_cache: std.HashMapUnmanaged(u32, void, std.hash_map.StringIndexContext, std.hash_map.default_max_load_percentage) = .empty,
+attrs: std.ArrayListUnmanaged(Attr) = .empty,
+mode_info: std.ArrayListUnmanaged(ModeInfo) = .empty,
 mode_idx: u32 = 0,
 
 cursor: struct { grid: u32, row: u16, col: u16 } = undefined,
@@ -16,7 +16,7 @@ default_colors: struct { fg: RGB, bg: RGB, sp: RGB } = undefined,
 
 grid_nr: ?u32 = null,
 grid_cached: *Grid = undefined,
-grids: std.AutoArrayHashMapUnmanaged(u32, Grid) = .{},
+grids: std.AutoArrayHashMapUnmanaged(u32, Grid) = .empty,
 msg: ?struct {
     grid: u32,
     row: u32,
@@ -81,7 +81,7 @@ pub fn get_colors(self: *Self, a: Attr) struct { RGB, RGB, RGB } {
 pub const Grid = struct {
     rows: u16 = 0,
     cols: u16 = 0,
-    cell: std.ArrayListUnmanaged(Cell) = .{},
+    cell: std.ArrayListUnmanaged(Cell) = .empty,
     info: GridInfo = .none,
 };
 
@@ -112,7 +112,7 @@ pub const Cell = struct {
 pub const RGB = packed struct { b: u8, g: u8, r: u8 };
 
 pub fn init(allocator: mem.Allocator) !Self {
-    var attrs: std.ArrayListUnmanaged(Attr) = .{};
+    var attrs: std.ArrayListUnmanaged(Attr) = .empty;
     try attrs.append(allocator, .{});
     return .{
         .allocator = allocator,

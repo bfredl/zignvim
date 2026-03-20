@@ -1,22 +1,20 @@
 const std = @import("std");
 const vaxis = @import("vaxis");
-const xev = @import("xev");
 const RPCState = @import("RPCState.zig");
 const UIState = @import("UIState.zig");
 const mpack = @import("mpack.zig");
-const io = @import("io_native.zig");
+const io_native = @import("io_native.zig");
 const ctlseqs = vaxis.ctlseqs;
 
 const Self = @This();
 
 allocator: std.mem.Allocator,
-loop: xev.Loop,
 parser: vaxis.Parser,
 child: std.process.Child = undefined,
 tty: vaxis.Tty,
 winsize: vaxis.Winsize = undefined,
 
-enc_buf: std.ArrayListUnmanaged(u8) = .{},
+enc_buf: std.ArrayListUnmanaged(u8) = .empty,
 
 quitting: bool = false,
 signal_stopped: bool = false,
@@ -24,7 +22,7 @@ signal_stopped: bool = false,
 // buf only for cell rendering. high prio messages might be sent directly
 // or use another buf
 render: struct {
-    buf: std.ArrayListUnmanaged(u8) = .{},
+    buf: std.ArrayListUnmanaged(u8) = .empty,
     // this is the position emitting buf would take you to. might
     // want another for "assumed start position"
     pos_r: u32 = 0,
@@ -44,43 +42,36 @@ render: struct {
     }
 } = .{},
 
-buf_nvim: [1024]u8 = undefined,
 decoder: mpack.SkipDecoder = undefined,
 rpc: RPCState,
-c_nvim: xev.Completion = undefined,
-stream_nvim: xev.Stream = undefined,
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const alloc = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    const gpa = init.gpa;
+    var mega_buffer: [512]u8 = undefined;
 
-    var vx = try vaxis.init(alloc, .{});
+    var vx = try vaxis.init(gpa, .{});
     var self: Self = .{
-        .parser = .{ .grapheme_data = &vx.unicode.width_data.g_data },
-        .rpc = try .init(alloc),
-        .loop = try xev.Loop.init(.{}),
-        .allocator = alloc,
-        .tty = try .init(),
+        .parser = .{},
+        .rpc = try .init(gpa),
+        // .loop = try xev.Loop.init(.{}),
+        .allocator = gpa,
+        .tty = try .init(&mega_buffer),
     };
     defer self.loop.deinit();
     defer self.tty.deinit();
 
     const ttyw = self.tty.anyWriter();
-    const stream = xev.Stream.initFd(self.tty.fd);
-    defer stream.deinit();
+
+    const tty_read: std.IO.File = .{ .handle = self.tty.fd, .flags = .{ .nonblocking = false } };
 
     self.winsize = try vaxis.Tty.getWinsize(self.tty.fd);
     try vaxis.Tty.notifyWinsize(.{ .callback = on_winch, .context = @ptrCast(&self) });
 
     try vx.enterAltScreen(ttyw);
-    defer vx.deinit(alloc, ttyw);
+    defer vx.deinit(gpa, ttyw);
 
-    self.decoder = mpack.SkipDecoder{ .data = self.buf_nvim[0..0] };
-    var read_buf: [1024]u8 = undefined;
-
-    var c: xev.Completion = undefined;
-    stream.read(&self.loop, &c, .{ .slice = &read_buf }, Self, &self, ttyReadCb);
+    // XX: encoder will be set with data when it is available
+    self.decoder = mpack.SkipDecoder{ .data = undefined };
 
     var nvim: ?[]const u8 = null;
     var argv_rest = std.os.argv[1..];
@@ -89,9 +80,41 @@ pub fn main() !void {
         argv_rest = argv_rest[2..];
     }
     try self.attach(nvim, argv_rest, self.winsize.cols, self.winsize.rows);
+    const nvim_read: std.IO.File = .{ .handle = self.nvim_read_fd, .flags = .{ .nonblocking = false } };
 
-    while (true) {
-        try self.loop.run(.once);
+    // WOW they actually implemted something very useful: essentially
+    // a mini-event loop which "just" tracks N fd:s and a resizing
+    // buffer for each, GOOD JOB ZIG CORE DEVS:)
+    var multi_reader_buffer: std.IopFile.MultiReader.Buffer(2) = undefined;
+    var multi_reader: std.Io.File.MultiReader = undefined;
+    multi_reader.init(gpa, std.io, multi_reader_buffer.toStreams(), &.{ nvim_read, tty_read });
+    defer multi_reader.deinit_checkthis();
+
+    const nvim_reader = multi_reader.reader(0);
+    const tty_reader = multi_reader.reader(1);
+
+    var tty_available_last: u32 = 0;
+    var nvim_available_last: u32 = 0;
+    while (multi_reader.fill()) |_| {
+        // TODO: check EOF
+        const tty_buffered = tty_reader.buffered();
+        if (tty_buffered.size > tty_available_last) {
+            const read = self.ttyReadCb(tty_buffered);
+            tty_reader.toss(read);
+            tty_available_last = tty_reader.buffered_size();
+        }
+
+        // TODO: nvim EOF
+        if (false) {
+            std.debug.print("nvim EOF!\n", .{});
+            break;
+        }
+        const nvim_buffered = nvim_reader.buffered();
+        if (nvim_buffered.size > nvim_available_last) {
+            const read = self.nvimReadCb(nvim_buffered);
+            nvim_reader.toss(read);
+            nvim_available_last = nvim_reader.buffered_size();
+        }
 
         if (self.quitting) break;
 
@@ -99,47 +122,28 @@ pub fn main() !void {
             // XXX: this is a bit of a hack. preferably the event loop should natively
             // handle signals as events
             self.signal_stopped = false;
-            self.loop.flags.stopped = false;
             try self.checkResize();
         }
+    } else |err| {
+        // TODO;
+        return err;
     }
 }
 
 fn ttyReadCb(
-    self_: ?*Self,
-    loop: *xev.Loop,
-    c: *xev.Completion,
-    stream: xev.Stream,
-    buf: xev.ReadBuffer,
-    r: xev.ReadError!usize,
-) xev.CallbackAction {
-    _ = loop;
-    _ = c;
-    _ = stream;
-    const self = self_.?;
-    const n = r catch |err| switch (err) {
-        error.EOF => {
-            std.debug.print("handle EOF!\n", .{});
-            return .disarm;
-        },
-        else => {
-            std.log.warn("tty unexpected err={}", .{err});
-            return .disarm;
-        },
-    };
-
+    self: *Self,
+    buf: []const u8,
+) !usize {
     // std.debug.print("Nommm {}\r\n", .{n});
-    const slice = buf.slice[0..n];
     var seq_start: usize = 0;
-    while (seq_start < n) {
-        const result = self.parser.parse(slice[seq_start..n], undefined) catch {
+    while (seq_start < buf.size) {
+        const result = self.parser.parse(buf[seq_start..buf.size], undefined) catch {
             std.debug.print("??parser panik\r\n", .{});
-            return .disarm;
+            return error.PANIK;
         };
         if (result.n == 0) {
-            // TODO: keep unfinished sequence and move read head
-            std.debug.print("??UNHANDLED??completion \r\n", .{});
-            return .rearm;
+            // cannot parse more, return how much we consumed
+            return seq_start;
         }
         seq_start += result.n;
 
@@ -154,12 +158,12 @@ fn ttyReadCb(
         }
     }
 
-    if (false and n > 0 and slice[0] == 3) {
+    if (false and buf.size > 0 and buf[0] == 3) {
         self.loop.stop();
         return .disarm;
     }
 
-    return .rearm;
+    return seq_start;
 }
 
 fn handleKeyPress(self: *Self, k: vaxis.Key) void {
@@ -190,20 +194,19 @@ fn handleKeyPress(self: *Self, k: vaxis.Key) void {
     }
 }
 
-fn attach(self: *Self, nvim_exe: ?[]const u8, args: []const ?[*:0]const u8, width: u32, height: u32) !void {
+fn attach(self: *Self, io: std.Io, nvim_exe: ?[]const u8, args: []const ?[*:0]const u8, width: u32, height: u32) !void {
     var the_fd: ?i32 = null;
     if (false) {
         the_fd = try std.posix.dup(0);
     }
 
-    self.child = try io.spawn(self.allocator, nvim_exe, args, the_fd);
+    self.child = try io_native.spawn(self.allocator, io, nvim_exe, args, the_fd);
 
-    var encoder = mpack.encoder(self.enc_buf.writer(self.allocator));
-    try io.attach(&encoder, width, height, if (the_fd) |_| @as(i32, 3) else null, false);
+    const encoder: mpack.Encoder = .init(self.enc_buf.writer(self.allocator));
+    try io_native.attach(encoder, width, height, if (the_fd) |_| @as(i32, 3) else null, false);
     try self.flush_input();
 
-    self.stream_nvim = .initFd(self.child.stdout.?.handle);
-    self.stream_nvim.read(&self.loop, &self.c_nvim, .{ .slice = &self.buf_nvim }, Self, self, nvimReadCb);
+    self.fd_nvim = self.child.stdout.?.handle;
 }
 
 fn flush_input(self: *Self) !void {
@@ -219,16 +222,13 @@ fn flush_input(self: *Self) !void {
 
 fn enqueueInput(self: *Self, str: []const u8) void {
     // dbg("aha: {s}\n", .{str});
-    const encoder = mpack.encoder(self.enc_buf.writer(self.allocator));
-    io.unsafe_input(encoder, str) catch @panic("memory error");
+    const encoder: mpack.Encoder = .init(self.enc_buf.writer(self.allocator));
+    io_native.unsafe_input(encoder, str) catch @panic("memory error");
 }
 
 fn on_winch(context: *anyopaque) void {
     const self: *Self = @ptrCast(@alignCast(context));
     self.signal_stopped = true;
-    // TODO: this libxev flag is really for "stopped forever". need
-    // a separate signal handling mechanism
-    self.loop.flags.stopped = true;
 }
 
 fn checkResize(self: *Self) !void {
@@ -236,53 +236,24 @@ fn checkResize(self: *Self) !void {
     if (new_size.rows != self.winsize.rows or new_size.cols != self.winsize.cols) {
         self.winsize = new_size;
 
-        const encoder = mpack.encoder(self.enc_buf.writer(self.allocator));
-        io.try_resize(encoder, 1, self.winsize.cols, self.winsize.rows) catch @panic("memory error");
+        const encoder: mpack.Encoder = .init(self.enc_buf.writer(self.allocator));
+        io_native.try_resize(encoder, 1, self.winsize.cols, self.winsize.rows) catch @panic("memory error");
         try self.flush_input();
     }
 }
 
 fn nvimReadCb(
-    self_: ?*Self,
-    loop: *xev.Loop,
-    c: *xev.Completion,
-    stream: xev.Stream,
-    buf: xev.ReadBuffer,
-    r: xev.ReadError!usize,
-) xev.CallbackAction {
-    _ = c;
-    _ = stream;
-    _ = buf;
-    _ = loop;
-    const self = self_.?;
-    const n = r catch |err| switch (err) {
-        error.EOF => {
-            std.debug.print("nvim EOF!\n", .{});
-            self.quitting = true;
-            self.loop.stop();
-            return .disarm;
-        },
-        else => {
-            std.log.warn("nvim unexpected err={}", .{err});
-            return .disarm;
-        },
-    };
-
-    self.decoder.data.len += n;
+    self: *Self,
+    buf: []const u8,
+) usize {
+    self.decoder.data = buf;
     self.rpc.process(&self.decoder) catch @panic("go crazy yea");
+    // TODO: this is a little messy. rework mpack.SkipDecoder to work nicely with
+    // std.Io.Reader style buffering
+    const consumed = buf.size - self.decoder.data.size;
+    self.decoder.data = undefined;
 
-    // move any unhandled RPC data to start
-    if (self.decoder.data.len > 0) {
-        std.mem.copyForwards(u8, &self.buf_nvim, self.decoder.data);
-    }
-    self.decoder.data.ptr = &self.buf_nvim;
-
-    // std.debug.print("Nommm {}\r\n", .{n});
-    // don't use .rearm as buf start position might change.
-    self.stream_nvim.read(&self.loop, &self.c_nvim, .{ .slice = self.buf_nvim[self.decoder.data.len..] }, Self, self, nvimReadCb);
-
-    // TODO: this might be racy on epoll backend, just don't support that or edit c inplace instead????
-    return .disarm;
+    return consumed;
 }
 
 pub fn attr_slice(self: *Self, id: u32) []const u8 {
