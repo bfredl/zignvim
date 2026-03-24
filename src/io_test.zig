@@ -40,10 +40,10 @@ pub fn main(init: std.process.Init) !void {
 
     try child.stdin.?.writeStreamingAll(init.io, x.items);
 
-    try dummy_loop(&child.stdout.?, gpa);
+    try dummy_loop(init.io, &child.stdout.?, gpa);
 }
 
-fn dummy_loop(stdout: anytype, allocator: std.mem.Allocator) !void {
+fn dummy_loop(io: std.Io, stdout: anytype, allocator: std.mem.Allocator) !void {
     var buf: [1024]u8 = undefined;
     var decoder = mpack.SkipDecoder{ .data = buf[0..0] };
     var self: @This() = .{ .rpc = try RPCState.init(allocator) };
@@ -54,7 +54,7 @@ fn dummy_loop(stdout: anytype, allocator: std.mem.Allocator) !void {
             // TODO: avoid move if remaining space is plenty (like > 900)
             std.mem.copyForwards(u8, &buf, decoder.data);
         }
-        const lenny = try stdout.readStreaming(buf[oldlen..]);
+        const lenny = try stdout.readStreaming(io, &.{buf[oldlen..]});
         decoder.data = buf[0 .. oldlen + lenny];
         try self.rpc.process(&decoder);
     }

@@ -8,13 +8,15 @@ const ctlseqs = vaxis.ctlseqs;
 
 const Self = @This();
 
-allocator: std.mem.Allocator,
+io: std.Io,
+gpa: std.mem.Allocator,
 parser: vaxis.Parser,
 child: std.process.Child = undefined,
 tty: vaxis.Tty,
 winsize: vaxis.Winsize = undefined,
 
-enc_buf: std.ArrayListUnmanaged(u8) = .empty,
+// TODO: reconsider this:
+enc_buf: std.Io.Writer.Allocating,
 
 quitting: bool = false,
 signal_stopped: bool = false,
@@ -22,7 +24,7 @@ signal_stopped: bool = false,
 // buf only for cell rendering. high prio messages might be sent directly
 // or use another buf
 render: struct {
-    buf: std.ArrayListUnmanaged(u8) = .empty,
+    buf: std.Io.Writer.Allocating,
     // this is the position emitting buf would take you to. might
     // want another for "assumed start position"
     pos_r: u32 = 0,
@@ -31,16 +33,16 @@ render: struct {
     const Render = @This();
 
     pub fn print(self: *Render, comptime fmt: []const u8, vals: anytype) !void {
-        try self.buf.writer(@as(*Self, @fieldParentPtr("render", self)).allocator).print(fmt, vals);
+        try self.buf.writer.print(fmt, vals);
     }
     pub fn put(self: *Render, str: []const u8) !void {
-        try self.buf.writer(@as(*Self, @fieldParentPtr("render", self)).allocator).writeAll(str);
+        try self.buf.writer.writeAll(str);
     }
 
     pub fn cup(self: *Render, row: u32, col: u32) !void {
         try self.print(ctlseqs.cup, .{ row + 1, col + 1 });
     }
-} = .{},
+},
 
 decoder: mpack.SkipDecoder = undefined,
 rpc: RPCState,
@@ -54,15 +56,17 @@ pub fn main(init: std.process.Init) !void {
         .parser = .{},
         .rpc = try .init(gpa),
         // .loop = try xev.Loop.init(.{}),
-        .allocator = gpa,
-        .tty = try .init(&mega_buffer),
+        .gpa = gpa,
+        .io = init.io,
+        .tty = try .init(init.io, &mega_buffer),
+        .enc_buf = .init(gpa),
+        .render = .{ .buf = .init(gpa) },
     };
-    defer self.loop.deinit();
-    defer self.tty.deinit();
+    defer self.tty.deinit(init.io);
 
-    const ttyw = self.tty.anyWriter();
+    const ttyw = self.tty.writer();
 
-    const tty_read: std.IO.File = .{ .handle = self.tty.fd, .flags = .{ .nonblocking = false } };
+    const tty_read: std.Io.File = .{ .handle = self.tty.fd, .flags = .{ .nonblocking = false } };
 
     self.winsize = try vaxis.Tty.getWinsize(self.tty.fd);
     try vaxis.Tty.notifyWinsize(.{ .callback = on_winch, .context = @ptrCast(&self) });
@@ -74,34 +78,34 @@ pub fn main(init: std.process.Init) !void {
     self.decoder = mpack.SkipDecoder{ .data = undefined };
 
     var nvim: ?[]const u8 = null;
-    var argv_rest = std.os.argv[1..];
+    var argv_rest = init.minimal.args.vector[1..];
     if (argv_rest.len >= 2 and std.mem.eql(u8, std.mem.span(argv_rest[0]), "--nvim")) {
         nvim = std.mem.span(argv_rest[1]);
         argv_rest = argv_rest[2..];
     }
     try self.attach(nvim, argv_rest, self.winsize.cols, self.winsize.rows);
-    const nvim_read: std.IO.File = .{ .handle = self.nvim_read_fd, .flags = .{ .nonblocking = false } };
+    const nvim_read: std.Io.File = self.child.stdout.?;
 
     // WOW they actually implemted something very useful: essentially
     // a mini-event loop which "just" tracks N fd:s and a resizing
     // buffer for each, GOOD JOB ZIG CORE DEVS:)
-    var multi_reader_buffer: std.IopFile.MultiReader.Buffer(2) = undefined;
+    var multi_reader_buffer: std.Io.File.MultiReader.Buffer(2) = undefined;
     var multi_reader: std.Io.File.MultiReader = undefined;
-    multi_reader.init(gpa, std.io, multi_reader_buffer.toStreams(), &.{ nvim_read, tty_read });
-    defer multi_reader.deinit_checkthis();
+    multi_reader.init(gpa, init.io, multi_reader_buffer.toStreams(), &.{ nvim_read, tty_read });
+    defer multi_reader.deinit();
 
     const nvim_reader = multi_reader.reader(0);
     const tty_reader = multi_reader.reader(1);
 
-    var tty_available_last: u32 = 0;
-    var nvim_available_last: u32 = 0;
-    while (multi_reader.fill()) |_| {
+    var tty_available_last: usize = 0;
+    var nvim_available_last: usize = 0;
+    while (multi_reader.fill(256, .none)) |_| {
         // TODO: check EOF
         const tty_buffered = tty_reader.buffered();
-        if (tty_buffered.size > tty_available_last) {
-            const read = self.ttyReadCb(tty_buffered);
+        if (tty_buffered.len > tty_available_last) {
+            const read = try self.ttyReadCb(tty_buffered);
             tty_reader.toss(read);
-            tty_available_last = tty_reader.buffered_size();
+            tty_available_last = tty_reader.bufferedLen();
         }
 
         // TODO: nvim EOF
@@ -110,10 +114,10 @@ pub fn main(init: std.process.Init) !void {
             break;
         }
         const nvim_buffered = nvim_reader.buffered();
-        if (nvim_buffered.size > nvim_available_last) {
+        if (nvim_buffered.len > nvim_available_last) {
             const read = self.nvimReadCb(nvim_buffered);
             nvim_reader.toss(read);
-            nvim_available_last = nvim_reader.buffered_size();
+            nvim_available_last = nvim_reader.bufferedLen();
         }
 
         if (self.quitting) break;
@@ -136,8 +140,8 @@ fn ttyReadCb(
 ) !usize {
     // std.debug.print("Nommm {}\r\n", .{n});
     var seq_start: usize = 0;
-    while (seq_start < buf.size) {
-        const result = self.parser.parse(buf[seq_start..buf.size], undefined) catch {
+    while (seq_start < buf.len) {
+        const result = self.parser.parse(buf[seq_start..buf.len], undefined) catch {
             std.debug.print("??parser panik\r\n", .{});
             return error.PANIK;
         };
@@ -194,35 +198,33 @@ fn handleKeyPress(self: *Self, k: vaxis.Key) void {
     }
 }
 
-fn attach(self: *Self, io: std.Io, nvim_exe: ?[]const u8, args: []const ?[*:0]const u8, width: u32, height: u32) !void {
+fn attach(self: *Self, nvim_exe: ?[]const u8, args: []const ?[*:0]const u8, width: u32, height: u32) !void {
     var the_fd: ?i32 = null;
     if (false) {
         the_fd = try std.posix.dup(0);
     }
 
-    self.child = try io_native.spawn(self.allocator, io, nvim_exe, args, the_fd);
+    self.child = try io_native.spawn(self.gpa, self.io, nvim_exe, args, the_fd);
 
-    const encoder: mpack.Encoder = .init(self.enc_buf.writer(self.allocator));
+    const encoder: mpack.Encoder = .init(&self.enc_buf.writer);
     try io_native.attach(encoder, width, height, if (the_fd) |_| @as(i32, 3) else null, false);
     try self.flush_input();
-
-    self.fd_nvim = self.child.stdout.?.handle;
 }
 
 fn flush_input(self: *Self) !void {
-    self.child.stdin.?.writeAll(self.enc_buf.items) catch |err| switch (err) {
+    self.child.stdin.?.writeStreamingAll(self.io, self.enc_buf.writer.buffered()) catch |err| switch (err) {
         error.BrokenPipe => {
             // Nvim exited. we will handle this later
             @panic("handle nvim exit somehowe reasonable");
         },
         else => |e| return e,
     };
-    self.enc_buf.items.len = 0;
+    _ = self.enc_buf.writer.consumeAll();
 }
 
 fn enqueueInput(self: *Self, str: []const u8) void {
     // dbg("aha: {s}\n", .{str});
-    const encoder: mpack.Encoder = .init(self.enc_buf.writer(self.allocator));
+    const encoder: mpack.Encoder = .init(&self.enc_buf.writer);
     io_native.unsafe_input(encoder, str) catch @panic("memory error");
 }
 
@@ -236,7 +238,7 @@ fn checkResize(self: *Self) !void {
     if (new_size.rows != self.winsize.rows or new_size.cols != self.winsize.cols) {
         self.winsize = new_size;
 
-        const encoder: mpack.Encoder = .init(self.enc_buf.writer(self.allocator));
+        const encoder: mpack.Encoder = .init(&self.enc_buf.writer);
         io_native.try_resize(encoder, 1, self.winsize.cols, self.winsize.rows) catch @panic("memory error");
         try self.flush_input();
     }
@@ -250,7 +252,7 @@ fn nvimReadCb(
     self.rpc.process(&self.decoder) catch @panic("go crazy yea");
     // TODO: this is a little messy. rework mpack.SkipDecoder to work nicely with
     // std.Io.Reader style buffering
-    const consumed = buf.size - self.decoder.data.size;
+    const consumed = buf.len - self.decoder.data.len;
     self.decoder.data = undefined;
 
     return consumed;
@@ -266,7 +268,7 @@ pub fn attr_slice(self: *Self, id: u32) []const u8 {
 }
 
 pub fn cb_grid_clear(self: *Self, grid_id: u32) !void {
-    self.render.buf.items.len = 0;
+    _ = self.render.buf.writer.consumeAll();
     if (grid_id != 1) return;
     try self.render.put(ctlseqs.home ++ ctlseqs.erase_below_cursor);
     self.render.pos_r = 0;
@@ -323,7 +325,7 @@ pub fn cb_grid_line(self: *Self, grid_id: u32, row: u32, start_col: u32, end_col
     const g = ui.grid(1) orelse return;
     const basepos = row * g.cols;
 
-    if (render.buf.items.len == 0 or render.pos_r != row or render.pos_c != start_col) {
+    if (render.buf.writer.end == 0 or render.pos_r != row or render.pos_c != start_col) {
         try render.cup(row, start_col);
         render.pos_r = row;
     }
@@ -347,7 +349,7 @@ const dbg = std.debug.print;
 
 pub fn put_grid(self: *Self) !void {
     // TODO: buffered writing?
-    const tty = self.tty.anyWriter();
+    const tty = self.tty.writer();
     const ui = &self.rpc.ui;
     const g = ui.grid(1) orelse return;
 
@@ -370,11 +372,11 @@ pub fn put_grid(self: *Self) !void {
 
 pub fn cb_flush(self: *Self) !void {
     const ui = &self.rpc.ui;
-    const tty = self.tty.anyWriter();
+    const tty = self.tty.writer();
     try tty.writeAll(ctlseqs.sgr_reset);
-    dbg("flish: {}\n", .{self.render.buf.items.len});
-    try tty.writeAll(self.render.buf.items);
-    self.render.buf.items.len = 0;
+    dbg("flish: {}\n", .{self.render.buf.writer.end});
+    try tty.writeAll(self.render.buf.writer.buffered());
+    _ = self.render.buf.writer.consumeAll();
 
     // only if needed
     try tty.print(ctlseqs.cup, .{ ui.cursor.row + 1, ui.cursor.col + 1 });

@@ -86,7 +86,7 @@ pub const Encoder = struct {
 };
 
 pub const ExtHead = struct { kind: i8, size: u32 };
-pub const SmallExt = struct { kind: i8, data: []u8 };
+pub const SmallExt = struct { kind: i8, data: []const u8 };
 pub const ValueHead = union(enum) {
     Null,
     Bool: bool,
@@ -124,10 +124,10 @@ const EOFError = error{EOFError};
 // this is like the unsafeInnerDecoder, abstract properly with skipDecoder as the outer layer?
 // when anything returns `EOFError` the decoder is an unknown state, always needs to be a inner()/consumed() layer deep..
 pub const InnerDecoder = struct {
-    data: []u8,
+    data: []const u8,
 
     const Self = @This();
-    fn readBytes(self: *Self, size: usize) EOFError![]u8 {
+    fn readBytes(self: *Self, size: usize) EOFError![]const u8 {
         if (self.data.len < size) {
             return error.EOFError;
         }
@@ -253,7 +253,7 @@ pub const InnerDecoder = struct {
         }
     }
 
-    pub fn expectString(self: *Self) MpackError![]u8 {
+    pub fn expectString(self: *Self) MpackError![]const u8 {
         const size = switch (try self.readHead()) {
             .Str => |size| size,
             .Bin => |size| size,
@@ -305,7 +305,7 @@ pub const InnerDecoder = struct {
 };
 
 pub const SkipDecoder = struct {
-    data: []u8,
+    data: []const u8,
     bytes: u64 = 0,
     items: u64 = 0,
 

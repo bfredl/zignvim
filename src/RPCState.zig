@@ -179,7 +179,9 @@ fn hl_attr_define(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
         }
     }
     attr.start = @intCast(self.ui.attr_arena.items.len);
-    const w = self.ui.attr_arena.writer(self.ui.allocator);
+    // soo. Writer.Allocating is the new ArrayListManaged. GOOD JOB ZIG CORE DEVS
+    var aw: std.Io.Writer.Allocating = .fromArrayList(self.ui.allocator, &self.ui.attr_arena);
+    const w = &aw.writer;
     try w.writeAll("\x1b[0m");
     if (attr.fg) |rgb| {
         try doColors(w, true, rgb);
@@ -191,6 +193,7 @@ fn hl_attr_define(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
         try w.writeAll("\x1b[1m");
     }
     attr.end = @intCast(self.ui.attr_arena.items.len);
+    self.ui.attr_arena = aw.toArrayList();
     try putAt(self.ui.allocator, &self.ui.attrs, id, attr);
     if (debug) dbg("\n", .{});
 
