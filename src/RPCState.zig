@@ -192,8 +192,8 @@ fn hl_attr_define(self: *Self, base_decoder: *mpack.SkipDecoder) !void {
     if (attr.bold) {
         try w.writeAll("\x1b[1m");
     }
-    attr.end = @intCast(self.ui.attr_arena.items.len);
     self.ui.attr_arena = aw.toArrayList();
+    attr.end = @intCast(self.ui.attr_arena.items.len);
     try putAt(self.ui.allocator, &self.ui.attrs, id, attr);
     if (debug) dbg("\n", .{});
 

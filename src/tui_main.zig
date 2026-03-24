@@ -319,7 +319,8 @@ const invalid_fixme = 0xFFFFFFFF;
 
 // note: RPC callbacks happen in the nvim read callback. heavy work need to be scheduled..
 pub fn cb_grid_line(self: *Self, grid_id: u32, row: u32, start_col: u32, end_col: u32) !void {
-    dbg("boll: {} {}, {}-{}\n", .{ grid_id, row, start_col, end_col });
+    // dbg("boll: {} {}, {}-{}\n", .{ grid_id, row, start_col, end_col });
+    _ = grid_id;
     const render = &self.render;
     const ui = &self.rpc.ui;
     const g = ui.grid(1) orelse return;
@@ -374,10 +375,11 @@ pub fn cb_flush(self: *Self) !void {
     const ui = &self.rpc.ui;
     const tty = self.tty.writer();
     try tty.writeAll(ctlseqs.sgr_reset);
-    dbg("flish: {}\n", .{self.render.buf.writer.end});
+    // dbg("flish: {}\n", .{self.render.buf.writer.end});
     try tty.writeAll(self.render.buf.writer.buffered());
     _ = self.render.buf.writer.consumeAll();
 
     // only if needed
     try tty.print(ctlseqs.cup, .{ ui.cursor.row + 1, ui.cursor.col + 1 });
+    try tty.flush(); // dOn'T fORgEt To fLuSH
 }
